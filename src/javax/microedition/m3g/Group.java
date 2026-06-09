@@ -24,16 +24,20 @@ public class Group extends Node
 	private Vector<Node> nodes;
 
 
-	public Group() {  }
+	public Group()
+	{
+		nodes = new Vector<Node>();
+	}
 
 
 	public void addChild(Node child)
 	{
-		try
+		if (child == null)
 		{
-			nodes.add(child);
+			throw new NullPointerException();
 		}
-		catch (Exception e) { }
+		nodes.add(child);
+		child.setParent(this);
 	}
 
 	public Node getChild(int index) { return nodes.get(index); }
@@ -44,6 +48,12 @@ public class Group extends Node
 
 	public boolean pick(int scope, float ox, float oy, float oz, float dx, float dy, float dz, RayIntersection ri) { return false; }
 
-	public void removeChild(Node child) { nodes.remove(child); }
+	public void removeChild(Node child)
+	{
+		if (nodes.remove(child) && child != null)
+		{
+			child.setParent(null);
+		}
+	}
 
 }

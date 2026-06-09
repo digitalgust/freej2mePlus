@@ -18,28 +18,82 @@ package javax.microedition.m3g;
 
 public class MorphingMesh extends Mesh
 {
-
-	private VertexBuffer morphtarget;
-	private float[] weights;
-
-
-	public MorphingMesh(VertexBuffer base, VertexBuffer[] targets, IndexBuffer[] submeshes, Appearance[] appearances) {  }
-
-	public MorphingMesh(VertexBuffer base, VertexBuffer[] targets, IndexBuffer submesh, Appearance appearance) {  }
+	private final VertexBuffer[] morphTargets;
+	private final float[] weights;
 
 
-	public VertexBuffer getMorphTarget(int index) { return morphtarget; }
+	public MorphingMesh(VertexBuffer base, VertexBuffer[] targets, IndexBuffer[] submeshes, Appearance[] appearances)
+	{
+		super(base, submeshes, appearances);
+		morphTargets = copyTargets(targets);
+		weights = new float[morphTargets.length];
+	}
 
-	public int getMorphTargetCount() { return 0; }
+	public MorphingMesh(VertexBuffer base, VertexBuffer[] targets, IndexBuffer submesh, Appearance appearance)
+	{
+		super(base, submesh, appearance);
+		morphTargets = copyTargets(targets);
+		weights = new float[morphTargets.length];
+	}
+
+
+	public VertexBuffer getMorphTarget(int index)
+	{
+		if (index < 0 || index >= morphTargets.length)
+		{
+			throw new IndexOutOfBoundsException();
+		}
+		return morphTargets[index];
+	}
+
+	public int getMorphTargetCount() { return morphTargets.length; }
 
 	public void getWeights(float[] store)
 	{
-		for (int i=0; i<weights.length; i++)
+		if (store == null)
 		{
-			store[i]=weights[i];
+			throw new NullPointerException();
 		}
+		if (store.length < weights.length)
+		{
+			throw new IllegalArgumentException();
+		}
+		System.arraycopy(weights, 0, store, 0, weights.length);
 	}
 
-	public void setWeights(float[] values) { weights = values; }
+	public void setWeights(float[] values)
+	{
+		if (values == null)
+		{
+			throw new NullPointerException();
+		}
+		if (values.length < weights.length)
+		{
+			throw new IllegalArgumentException();
+		}
+		System.arraycopy(values, 0, weights, 0, weights.length);
+	}
+
+	private static VertexBuffer[] copyTargets(VertexBuffer[] targets)
+	{
+		if (targets == null)
+		{
+			throw new NullPointerException();
+		}
+		if (targets.length == 0)
+		{
+			throw new IllegalArgumentException();
+		}
+		VertexBuffer[] copy = new VertexBuffer[targets.length];
+		for (int i = 0; i < targets.length; i++)
+		{
+			if (targets[i] == null)
+			{
+				throw new NullPointerException();
+			}
+			copy[i] = targets[i];
+		}
+		return copy;
+	}
 
 }

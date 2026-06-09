@@ -27,38 +27,124 @@ public abstract class Node extends Transformable
 
 
 	private Node alignRef;
-	private float alphaFactor;
-	private boolean picking = false;
-	private boolean rendering = false;
-	private int scope;
+	private Node yAlignRef;
+	private float alphaFactor = 1f;
+	private boolean picking = true;
+	private boolean rendering = true;
+	private int scope = -1;
+	private Node parent;
+	private int zTarget = NONE;
+	private int yTarget = NONE;
 
 
 	public void align(Node reference) {  }
 
-	public Node getAlignmentReference(int axis) { return alignRef; }
+	public Node getAlignmentReference(int axis)
+	{
+		checkAxis(axis);
+		return axis == Z_AXIS ? alignRef : yAlignRef;
+	}
 
-	public int getAlignmentTarget(int axis) { return 0; }
+	public int getAlignmentTarget(int axis)
+	{
+		checkAxis(axis);
+		return axis == Z_AXIS ? zTarget : yTarget;
+	}
 
 	public float getAlphaFactor() { return alphaFactor; }
 
-	public Node getParent() { return this; }
+	public Node getParent() { return parent; }
 
 	public int getScope() { return scope; }
 
-	public boolean getTransformTo(Node target, Transform transform) { return false; }
+	public boolean getTransformTo(Node target, Transform transform)
+	{
+		if (target == null || transform == null)
+		{
+			throw new NullPointerException();
+		}
+		if (getRoot(this) != getRoot(target))
+		{
+			return false;
+		}
+
+		Transform source = new Transform();
+		Transform destination = new Transform();
+		getCompositeTransform(source);
+		target.getCompositeTransform(destination);
+		destination.invert();
+		destination.postMultiply(source);
+		transform.set(destination);
+		return true;
+	}
 
 	public boolean isPickingEnabled() { return picking; }
 
 	public boolean isRenderingEnabled() { return rendering; }
 
-	public void setAlignment(Node zRef, int zTarget, Node yRef, int yTarget) {  }
+	public void setAlignment(Node zRef, int zTarget, Node yRef, int yTarget)
+	{
+		checkTarget(zTarget);
+		checkTarget(yTarget);
+		if (zRef == this || yRef == this)
+		{
+			throw new IllegalArgumentException();
+		}
+		if (zRef == yRef && zRef != null && zTarget == yTarget && zTarget != NONE)
+		{
+			throw new IllegalArgumentException();
+		}
 
-	public void setAlphaFactor(float value) { alphaFactor = value; }
+		alignRef = zRef;
+		this.zTarget = zTarget;
+		yAlignRef = yRef;
+		this.yTarget = yTarget;
+	}
+
+	public void setAlphaFactor(float value)
+	{
+		if (value < 0f || value > 1f)
+		{
+			throw new IllegalArgumentException();
+		}
+		alphaFactor = value;
+	}
 
 	public void setPickingEnable(boolean enable) { picking = enable; }
 
 	public void setRenderingEnable(boolean enable) { rendering = enable; }
 
 	public void setScope(int value) { scope = value; }
+
+	void setParent(Node parent)
+	{
+		this.parent = parent;
+	}
+
+	private static Node getRoot(Node node)
+	{
+		Node current = node;
+		while (current.getParent() != null)
+		{
+			current = current.getParent();
+		}
+		return current;
+	}
+
+	private static void checkAxis(int axis)
+	{
+		if (axis != Y_AXIS && axis != Z_AXIS)
+		{
+			throw new IllegalArgumentException();
+		}
+	}
+
+	private static void checkTarget(int target)
+	{
+		if (target != NONE && target != ORIGIN && target != X_AXIS && target != Y_AXIS && target != Z_AXIS)
+		{
+			throw new IllegalArgumentException();
+		}
+	}
 
 }

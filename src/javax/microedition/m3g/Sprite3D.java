@@ -34,6 +34,11 @@ public class Sprite3D extends Node
 		scaled = isScaled;
 		image = img;
 		appearance = a;
+		if (img != null)
+		{
+			cropw = img.getWidth();
+			croph = img.getHeight();
+		}
 	}
 
 

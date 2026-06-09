@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.recompile</groupId>
+    <artifactId>freej2me</artifactId>
+    <version>1.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+    </properties>
+
+    <build>
+        <sourceDirectory>${project.basedir}/src</sourceDirectory>
+        <directory>${project.basedir}/build</directory>
+        <finalName>${project.artifactId}</finalName>
+
+        <resources>
+            <resource>
+                <directory>${project.basedir}/resources</directory>
+                <filtering>false</filtering>
+            </resource>
+            <resource>
+                <directory>${project.basedir}/META-INF</directory>
+                <targetPath>META-INF</targetPath>
+                <filtering>false</filtering>
+            </resource>
+        </resources>
+
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <showWarnings>true</showWarnings>
+                    <compilerArgs>
+                        <arg>-Xlint:unchecked</arg>
+                        <arg>-Xlint:deprecation</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>org.recompile.freej2me.FreeJ2ME</mainClass>
+                        </manifest>
+                        <manifestEntries>
+                            <Implementation-Title>FreeJ2ME</Implementation-Title>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>libretro-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>lr</classifier>
+                            <archive>
+                                <manifest>
+                                    <mainClass>org.recompile.freej2me.Libretro</mainClass>
+                                </manifest>
+                                <manifestEntries>
+                                    <Implementation-Title>FreeJ2ME</Implementation-Title>
+                                </manifestEntries>
+                            </archive>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>sdl-jar</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>sdl</classifier>
+                            <archive>
+                                <manifest>
+                                    <mainClass>org.recompile.freej2me.Anbu</mainClass>
+                                </manifest>
+                                <manifestEntries>
+                                    <Implementation-Title>FreeJ2ME</Implementation-Title>
+                                </manifestEntries>
+                            </archive>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+
+            <plugin>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>run</goal>
+                        </goals>
+                        <configuration>
+                            <target>
+
+<!--                                <mkdir dir="${basedir}/../freej2meOnMinijvm/src/main/resource/lib/"/>-->
+                                <copy todir="${basedir}/../freej2meOnMinijvm/src/main/resource/lib/" overwrite="true">
+                                    <fileset dir="${project.build.directory}" erroronmissingdir="false">
+                                        <include name="${project.artifactId}.jar"/>
+                                    </fileset>
+                                </copy>
+
+                                <!--                                <mkdir dir="/Library/WebServer/Documents"/>-->
+                                <!--                                <copy todir="/Library/WebServer/Documents" overwrite="true">-->
+                                <!--                                    <fileset dir="${project.build.directory}" erroronmissingdir="false">-->
+                                <!--                                        <include name="${project.artifactId}.jar"/>-->
+                                <!--                                    </fileset>-->
+                                <!--                                </copy>-->
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

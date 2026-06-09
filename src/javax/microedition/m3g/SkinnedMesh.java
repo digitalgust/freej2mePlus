@@ -22,9 +22,25 @@ public class SkinnedMesh extends Mesh
 	private Group skeleton;
 
 
-	public SkinnedMesh(VertexBuffer vertices, IndexBuffer[] submeshes, Appearance[] appearances, Group skeleton) {  }
+	public SkinnedMesh(VertexBuffer vertices, IndexBuffer[] submeshes, Appearance[] appearances, Group skeleton)
+	{
+		super(vertices, submeshes, appearances);
+		if (skeleton == null)
+		{
+			throw new NullPointerException();
+		}
+		this.skeleton = skeleton;
+	}
 
-	public SkinnedMesh(VertexBuffer vertices, IndexBuffer submesh, Appearance appearance, Group skeleton) {  }
+	public SkinnedMesh(VertexBuffer vertices, IndexBuffer submesh, Appearance appearance, Group skeleton)
+	{
+		super(vertices, submesh, appearance);
+		if (skeleton == null)
+		{
+			throw new NullPointerException();
+		}
+		this.skeleton = skeleton;
+	}
 
 
 	public void addTransform(Node bone, int weight, int firstVertex, int numVertices) {  }

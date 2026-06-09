@@ -6,3 +6,4 @@ config/
 rms/
 .idea/
 out/
+.dbg/

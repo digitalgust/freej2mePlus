@@ -28,25 +28,62 @@ public class KeyframeSequence extends Object3D
 	public static final int STEP = 180;
 
 
+	private final int intType;
+	private final int keyframes;
+	private final int components;
 	private int duration;
-	private int intType;
-	private int keyframe;
-	private int keyframes;
 	private int repeat;
 	private int rangeFirst;
 	private int rangeLast;
+	private final int[] times;
+	private final float[][] values;
 
 
-	public KeyframeSequence(int numKeyframes, int numComponents, int interpolation) {  }
+	public KeyframeSequence(int numKeyframes, int numComponents, int interpolation)
+	{
+		if (numKeyframes < 1 || numComponents < 1)
+		{
+			throw new IllegalArgumentException();
+		}
+		if (interpolation < LINEAR || interpolation > STEP)
+		{
+			throw new IllegalArgumentException();
+		}
+		if ((interpolation == SLERP || interpolation == SQUAD) && numComponents != 4)
+		{
+			throw new IllegalArgumentException();
+		}
+
+		intType = interpolation;
+		keyframes = numKeyframes;
+		components = numComponents;
+		rangeFirst = 0;
+		rangeLast = numKeyframes - 1;
+		repeat = CONSTANT;
+		times = new int[numKeyframes];
+		values = new float[numKeyframes][numComponents];
+	}
 
 
-	public int getComponentCount() { return 0; }
+	public int getComponentCount() { return components; }
 
 	public int getDuration() { return duration; }
 
 	public int getInterpolationType() { return intType; }
 
-	public int getKeyframe(int index, float[] value) { return keyframe; }
+	public int getKeyframe(int index, float[] value)
+	{
+		checkIndex(index);
+		if (value != null)
+		{
+			if (value.length < components)
+			{
+				throw new IllegalArgumentException();
+			}
+			System.arraycopy(values[index], 0, value, 0, components);
+		}
+		return times[index];
+	}
 
 	public int getKeyframeCount() { return keyframes; }
 
@@ -56,12 +93,252 @@ public class KeyframeSequence extends Object3D
 
 	public int getValidRangeLast() { return rangeLast; }
 
-	public void setDuration(int value) { duration = value; }
+	public void setDuration(int value)
+	{
+		if (value <= 0)
+		{
+			throw new IllegalArgumentException();
+		}
+		duration = value;
+	}
 
-	public void setKeyframe(int index, int time, float[] value) { keyframe=index; }
+	public void setKeyframe(int index, int time, float[] value)
+	{
+		checkIndex(index);
+		if (value == null)
+		{
+			throw new NullPointerException();
+		}
+		if (value.length < components || time < 0)
+		{
+			throw new IllegalArgumentException();
+		}
 
-	public void setRepeatMode(int mode) { repeat=mode; }
+		System.arraycopy(value, 0, values[index], 0, components);
+		if (intType == SLERP || intType == SQUAD)
+		{
+			normalizeQuaternion(values[index]);
+		}
+		times[index] = time;
+	}
 
-	public void setValidRange(int first, int last) { rangeFirst=first; rangeLast=last; }
+	public void setRepeatMode(int mode)
+	{
+		if (mode != CONSTANT && mode != LOOP)
+		{
+			throw new IllegalArgumentException();
+		}
+		repeat = mode;
+	}
+
+	public void setValidRange(int first, int last)
+	{
+		checkIndex(first);
+		checkIndex(last);
+		rangeFirst = first;
+		rangeLast = last;
+	}
+
+	int getSample(float sequenceTime, float[] sample)
+	{
+		if (sample == null)
+		{
+			throw new NullPointerException();
+		}
+		if (sample.length < components)
+		{
+			throw new IllegalArgumentException();
+		}
+
+		if (duration <= 0)
+		{
+			copyValue(rangeFirst, sample);
+			return Integer.MAX_VALUE;
+		}
+
+		int first = rangeFirst;
+		int last = rangeLast;
+		float time = sequenceTime;
+
+		if (repeat == LOOP)
+		{
+			float loopTime = time % duration;
+			if (loopTime < 0f)
+			{
+				loopTime += duration;
+			}
+			time = loopTime;
+			if (time < times[first])
+			{
+				time += duration;
+			}
+		}
+		else
+		{
+			if (time <= times[first])
+			{
+				copyValue(first, sample);
+				return clampValidity(times[first] - time);
+			}
+			if (time >= times[last])
+			{
+				copyValue(last, sample);
+				return Integer.MAX_VALUE;
+			}
+		}
+
+		int start = first;
+		while (start != last)
+		{
+			int next = nextIndex(start);
+			float nextTime = times[next];
+			if (next == first && repeat == LOOP && nextTime <= times[start])
+			{
+				nextTime += duration;
+			}
+			if (time < nextTime)
+			{
+				break;
+			}
+			start = next;
+		}
+
+		int end = nextIndex(start);
+		float startTime = times[start];
+		float endTime = times[end];
+		if (end == first && repeat == LOOP && endTime <= startTime)
+		{
+			endTime += duration;
+		}
+		if (time == startTime || intType == STEP || endTime <= startTime)
+		{
+			copyValue(start, sample);
+			if (intType == STEP && endTime > startTime)
+			{
+				return clampValidity(endTime - time);
+			}
+			return 1;
+		}
+
+		float s = (time - startTime) / (endTime - startTime);
+		interpolate(start, end, s, sample);
+		return 1;
+	}
+
+	private void interpolate(int start, int end, float s, float[] sample)
+	{
+		switch (intType)
+		{
+			case SLERP:
+			case SQUAD:
+				slerp(values[start], values[end], s, sample);
+				return;
+			case SPLINE:
+			case LINEAR:
+			default:
+				for (int i = 0; i < components; i++)
+				{
+					float from = values[start][i];
+					sample[i] = from + ((values[end][i] - from) * s);
+				}
+				return;
+		}
+	}
+
+	private void copyValue(int index, float[] sample)
+	{
+		System.arraycopy(values[index], 0, sample, 0, components);
+	}
+
+	private int nextIndex(int index)
+	{
+		if (index == rangeLast)
+		{
+			return rangeFirst;
+		}
+		return index + 1;
+	}
+
+	private void checkIndex(int index)
+	{
+		if (index < 0 || index >= keyframes)
+		{
+			throw new IndexOutOfBoundsException();
+		}
+	}
+
+	private static int clampValidity(float delta)
+	{
+		if (delta <= 1f)
+		{
+			return 1;
+		}
+		if (delta >= Integer.MAX_VALUE)
+		{
+			return Integer.MAX_VALUE;
+		}
+		return (int) delta;
+	}
+
+	private static void normalizeQuaternion(float[] quaternion)
+	{
+		float x = quaternion[0];
+		float y = quaternion[1];
+		float z = quaternion[2];
+		float w = quaternion[3];
+		float length = (float) Math.sqrt((x * x) + (y * y) + (z * z) + (w * w));
+		if (length == 0f)
+		{
+			quaternion[0] = 0f;
+			quaternion[1] = 0f;
+			quaternion[2] = 0f;
+			quaternion[3] = 1f;
+			return;
+		}
+		quaternion[0] = x / length;
+		quaternion[1] = y / length;
+		quaternion[2] = z / length;
+		quaternion[3] = w / length;
+	}
+
+	private static void slerp(float[] from, float[] to, float s, float[] out)
+	{
+		float dot = (from[0] * to[0]) + (from[1] * to[1]) + (from[2] * to[2]) + (from[3] * to[3]);
+		float tx = to[0];
+		float ty = to[1];
+		float tz = to[2];
+		float tw = to[3];
+		if (dot < 0f)
+		{
+			dot = -dot;
+			tx = -tx;
+			ty = -ty;
+			tz = -tz;
+			tw = -tw;
+		}
+
+		if (dot > 0.9995f)
+		{
+			out[0] = from[0] + ((tx - from[0]) * s);
+			out[1] = from[1] + ((ty - from[1]) * s);
+			out[2] = from[2] + ((tz - from[2]) * s);
+			out[3] = from[3] + ((tw - from[3]) * s);
+			normalizeQuaternion(out);
+			return;
+		}
+
+		double theta0 = Math.acos(dot);
+		double theta = theta0 * s;
+		double sinTheta = Math.sin(theta);
+		double sinTheta0 = Math.sin(theta0);
+		float scale0 = (float) (Math.cos(theta) - (dot * sinTheta / sinTheta0));
+		float scale1 = (float) (sinTheta / sinTheta0);
+
+		out[0] = (from[0] * scale0) + (tx * scale1);
+		out[1] = (from[1] * scale0) + (ty * scale1);
+		out[2] = (from[2] * scale0) + (tz * scale1);
+		out[3] = (from[3] * scale0) + (tw * scale1);
+		normalizeQuaternion(out);
+	}
 
 }

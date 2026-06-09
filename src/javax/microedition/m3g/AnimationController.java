@@ -20,8 +20,8 @@ package javax.microedition.m3g;
 public class AnimationController extends Object3D
 {
 
-	private float weight;
-	private float speed;
+	private float weight = 1f;
+	private float speed = 1f;
 	private int world;
 	private float sequence;
 	private int intStart;
@@ -35,7 +35,10 @@ public class AnimationController extends Object3D
 
 	public int getActiveIntervalStart()  { return intStart; }
 
-	public float getPosition(int worldTime)  { return sequence; }
+	public float getPosition(int worldTime)
+	{
+		return sequence + (speed * ((float) (worldTime - world)));
+	}
 
 	public int getRefWorldTime()  { return world; }
 
@@ -45,6 +48,10 @@ public class AnimationController extends Object3D
 
 	public void setActiveInterval(int start, int end)
 	{
+		if (start > end)
+		{
+			throw new IllegalArgumentException();
+		}
 		intStart = start;
 		intEnd = end;
 	}
@@ -57,10 +64,48 @@ public class AnimationController extends Object3D
 
 	public void setSpeed(float value, int worldTime)
 	{
+		sequence = getPosition(worldTime);
 		speed = value;
 		world = worldTime;
 	}
 
-	public void setWeight(float value)  { weight = value; }
+	public void setWeight(float value)
+	{
+		if (value < 0f)
+		{
+			throw new IllegalArgumentException();
+		}
+		weight = value;
+	}
+
+	boolean isActive(int worldTime)
+	{
+		if (weight <= 0f)
+		{
+			return false;
+		}
+		return intStart == intEnd || (worldTime >= intStart && worldTime < intEnd);
+	}
+
+	int timeToActivation(int worldTime)
+	{
+		if (weight <= 0f)
+		{
+			return Integer.MAX_VALUE;
+		}
+		if (intStart == intEnd)
+		{
+			return Integer.MAX_VALUE;
+		}
+		if (worldTime < intStart)
+		{
+			return intStart - worldTime;
+		}
+		if (worldTime >= intEnd)
+		{
+			return Integer.MAX_VALUE;
+		}
+		return 1;
+	}
 
 }

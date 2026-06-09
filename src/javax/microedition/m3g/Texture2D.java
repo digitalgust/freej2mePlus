@@ -31,16 +31,19 @@ public class Texture2D extends Transformable
 	public static final int WRAP_REPEAT = 241;
 
 
-	private int blending = FUNC_ADD;
+	private int blending = FUNC_MODULATE;
 	private int blendcolor = 0;
-	private int filter = FILTER_LINEAR;
+	private int filter = FILTER_NEAREST;
 	private int filterlevel = FILTER_BASE_LEVEL;
-	private int wraps = WRAP_CLAMP;
-	private int wrapt = WRAP_CLAMP;
+	private int wraps = WRAP_REPEAT;
+	private int wrapt = WRAP_REPEAT;
 
 	private Image2D texImage;
 
-	public Texture2D(Image2D image) {  }
+	public Texture2D(Image2D image)
+	{
+		setImage(image);
+	}
 
 
 	public int getBlendColor() { return blendcolor; }
@@ -57,14 +60,53 @@ public class Texture2D extends Transformable
 
 	public int getWrappingT() { return wrapt; }
 
-	public void setBlendColor(int RGB) {  }
+	public void setBlendColor(int RGB) { blendcolor = RGB & 0x00FFFFFF; }
 
-	public void setBlending(int func) { blending = func; }
+	public void setBlending(int func)
+	{
+		if (func < FUNC_ADD || func > FUNC_REPLACE)
+		{
+			throw new IllegalArgumentException();
+		}
+		blending = func;
+	}
 
-	public void setFiltering(int levelFilter, int imageFilter) { filterlevel = levelFilter; filter = imageFilter; }
+	public void setFiltering(int levelFilter, int imageFilter)
+	{
+		if (levelFilter < FILTER_BASE_LEVEL || levelFilter > FILTER_NEAREST || imageFilter < FILTER_LINEAR || imageFilter > FILTER_NEAREST)
+		{
+			throw new IllegalArgumentException();
+		}
+		filterlevel = levelFilter;
+		filter = imageFilter;
+	}
 
-	public void setImage(Image2D image) { texImage = image; }
+	public void setImage(Image2D image)
+	{
+		if (image == null)
+		{
+			throw new NullPointerException();
+		}
+		if (!isPositivePowerOfTwo(image.getWidth()) || !isPositivePowerOfTwo(image.getHeight()))
+		{
+			throw new IllegalArgumentException();
+		}
+		texImage = image;
+	}
 
-	public void setWrapping(int wrapS, int wrapT) { wraps = wrapS; wrapt = wrapT; }
+	public void setWrapping(int wrapS, int wrapT)
+	{
+		if ((wrapS != WRAP_CLAMP && wrapS != WRAP_REPEAT) || (wrapT != WRAP_CLAMP && wrapT != WRAP_REPEAT))
+		{
+			throw new IllegalArgumentException();
+		}
+		wraps = wrapS;
+		wrapt = wrapT;
+	}
+
+	private static boolean isPositivePowerOfTwo(int value)
+	{
+		return value > 0 && (value & (value - 1)) == 0;
+	}
 
 }

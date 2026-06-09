@@ -18,9 +18,100 @@ package javax.microedition.m3g;
 
 public class TriangleStripArray extends IndexBuffer
 {
+	private final int[] indices;
+	private final int[] stripLengths;
 
-	public TriangleStripArray(int[] indices, int[] stripLengths) {  }
+	public TriangleStripArray(int[] indices, int[] stripLengths)
+	{
+		if (indices == null || stripLengths == null)
+		{
+			throw new NullPointerException();
+		}
+		validateStripLengths(stripLengths);
+		int expected = 0;
+		for (int i = 0; i < stripLengths.length; i++)
+		{
+			expected += stripLengths[i];
+		}
+		if (indices.length < expected)
+		{
+			throw new IllegalArgumentException();
+		}
 
-	public TriangleStripArray(int firstIndex, int[] stripLengths) {  }
+		this.indices = new int[expected];
+		this.stripLengths = new int[stripLengths.length];
+		System.arraycopy(indices, 0, this.indices, 0, expected);
+		System.arraycopy(stripLengths, 0, this.stripLengths, 0, stripLengths.length);
+	}
+
+	public TriangleStripArray(int firstIndex, int[] stripLengths)
+	{
+		if (firstIndex < 0)
+		{
+			throw new IllegalArgumentException();
+		}
+		if (stripLengths == null)
+		{
+			throw new NullPointerException();
+		}
+		validateStripLengths(stripLengths);
+		int count = 0;
+		for (int i = 0; i < stripLengths.length; i++)
+		{
+			count += stripLengths[i];
+		}
+		this.indices = new int[count];
+		this.stripLengths = new int[stripLengths.length];
+		System.arraycopy(stripLengths, 0, this.stripLengths, 0, stripLengths.length);
+		for (int i = 0; i < count; i++)
+		{
+			this.indices[i] = firstIndex + i;
+		}
+	}
+
+	@Override
+	public int getIndexCount()
+	{
+		return indices.length;
+	}
+
+	@Override
+	public void getIndices(int[] indices)
+	{
+		if (indices == null)
+		{
+			throw new NullPointerException();
+		}
+		if (indices.length < this.indices.length)
+		{
+			throw new IllegalArgumentException();
+		}
+		System.arraycopy(this.indices, 0, indices, 0, this.indices.length);
+	}
+
+	int[] getRawIndices()
+	{
+		return indices;
+	}
+
+	int[] getStripLengths()
+	{
+		return stripLengths;
+	}
+
+	private void validateStripLengths(int[] stripLengths)
+	{
+		if (stripLengths.length == 0)
+		{
+			throw new IllegalArgumentException();
+		}
+		for (int i = 0; i < stripLengths.length; i++)
+		{
+			if (stripLengths[i] < 3)
+			{
+				throw new IllegalArgumentException();
+			}
+		}
+	}
 
 }

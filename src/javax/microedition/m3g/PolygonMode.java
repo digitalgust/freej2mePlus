@@ -29,8 +29,11 @@ public class PolygonMode extends Object3D
 
 
 	private int culling = CULL_BACK;
-	private int shading = SHADE_FLAT;
+	private int shading = SHADE_SMOOTH;
 	private int winding = WINDING_CCW;
+	private boolean localCameraLighting;
+	private boolean perspectiveCorrection;
+	private boolean twoSidedLighting;
 
 
 	public PolygonMode() {  }
@@ -42,22 +45,43 @@ public class PolygonMode extends Object3D
 
 	public int getWinding() { return winding; }
 
-	public boolean isLocalCameraLightingEnabled() { return false; }
+	public boolean isLocalCameraLightingEnabled() { return localCameraLighting; }
 
-	public boolean isPerspectiveCorrectionEnabled() { return false; }
+	public boolean isPerspectiveCorrectionEnabled() { return perspectiveCorrection; }
 
-	public boolean isTwoSidedLightingEnabled() { return false; }
+	public boolean isTwoSidedLightingEnabled() { return twoSidedLighting; }
 
-	public void setCulling(int mode) { culling = mode; }
+	public void setCulling(int mode)
+	{
+		if (mode != CULL_BACK && mode != CULL_FRONT && mode != CULL_NONE)
+		{
+			throw new IllegalArgumentException();
+		}
+		culling = mode;
+	}
 
-	public void setLocalCameraLightingEnable(boolean enable) {  }
+	public void setLocalCameraLightingEnable(boolean enable) { localCameraLighting = enable; }
 
-	public void setPerspectiveCorrectionEnable(boolean enable) {  }
+	public void setPerspectiveCorrectionEnable(boolean enable) { perspectiveCorrection = enable; }
 
-	public void setShading(int mode) { shading = mode; }
+	public void setShading(int mode)
+	{
+		if (mode != SHADE_FLAT && mode != SHADE_SMOOTH)
+		{
+			throw new IllegalArgumentException();
+		}
+		shading = mode;
+	}
 
-	public void setTwoSidedLightingEnable(boolean enable) {  }
+	public void setTwoSidedLightingEnable(boolean enable) { twoSidedLighting = enable; }
 
-	public void setWinding(int mode) { winding = mode; }
+	public void setWinding(int mode)
+	{
+		if (mode != WINDING_CCW && mode != WINDING_CW)
+		{
+			throw new IllegalArgumentException();
+		}
+		winding = mode;
+	}
 
 }

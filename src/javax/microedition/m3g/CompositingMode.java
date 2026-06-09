@@ -27,14 +27,14 @@ public class CompositingMode extends Object3D
 	public static final int REPLACE = 68;
 
 
-	private int blending;
+	private int blending = REPLACE;
 	private float alphaThreshold;
-	private boolean alphaWrite;
-	private boolean depthWrite;
-	private boolean depthTest;
+	private boolean alphaWrite = true;
+	private boolean depthWrite = true;
+	private boolean depthTest = true;
 	private float depthOffsetUnits;
 	private float depthOffsetFactor;
-	private boolean colorWrite;
+	private boolean colorWrite = true;
 
 
 	public CompositingMode() {  }
@@ -56,11 +56,25 @@ public class CompositingMode extends Object3D
 
 	public boolean isDepthWriteEnabled() { return depthWrite; }
 
-	public void setAlphaThreshold(float threshold) { alphaThreshold = threshold; }
+	public void setAlphaThreshold(float threshold)
+	{
+		if (threshold < 0f || threshold > 1f)
+		{
+			throw new IllegalArgumentException();
+		}
+		alphaThreshold = threshold;
+	}
 
 	public void setAlphaWriteEnable(boolean enable) { alphaWrite = enable; }
 
-	public void setBlending(int mode) { blending = mode; }
+	public void setBlending(int mode)
+	{
+		if (mode != ALPHA && mode != ALPHA_ADD && mode != MODULATE && mode != MODULATE_X2 && mode != REPLACE)
+		{
+			throw new IllegalArgumentException();
+		}
+		blending = mode;
+	}
 
 	public void setColorWriteEnable(boolean enable) { colorWrite = enable; }
 

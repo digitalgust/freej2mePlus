@@ -21,7 +21,6 @@ public class Protocol implements ConnectionBaseInterface, FileConnection {
     private final static char DIR_SEP = '/';
 
     private final static String DIR_SEP_STR = "/";
-    org.mini.fs.FileSystem fs = org.mini.fs.FileSystem.getFileSystem();
 
     Protocol() {
 

@@ -49,6 +49,18 @@ public class AnimationTrack extends Object3D
 
 	public AnimationTrack(KeyframeSequence seq, int prop)
 	{
+		if (seq == null)
+		{
+			throw new NullPointerException();
+		}
+		if (prop < ALPHA || prop > VISIBILITY)
+		{
+			throw new IllegalArgumentException();
+		}
+		if (!isValidComponentCount(prop, seq.getComponentCount()))
+		{
+			throw new IllegalArgumentException();
+		}
 		sequence = seq;
 		property = prop;
 	}
@@ -61,5 +73,41 @@ public class AnimationTrack extends Object3D
 	public int getTargetProperty() { return property; }
 
 	public void setController(AnimationController ac) { controller = ac; }
+
+	private static boolean isValidComponentCount(int property, int numComponents)
+	{
+		switch (property)
+		{
+			case ALPHA:
+			case DENSITY:
+			case FAR_DISTANCE:
+			case FIELD_OF_VIEW:
+			case INTENSITY:
+			case NEAR_DISTANCE:
+			case PICKABILITY:
+			case SHININESS:
+			case SPOT_ANGLE:
+			case SPOT_EXPONENT:
+			case VISIBILITY:
+				return numComponents == 1;
+			case CROP:
+				return numComponents == 2 || numComponents == 4;
+			case COLOR:
+			case AMBIENT_COLOR:
+			case DIFFUSE_COLOR:
+			case EMISSIVE_COLOR:
+			case SPECULAR_COLOR:
+			case TRANSLATION:
+				return numComponents == 3;
+			case ORIENTATION:
+				return numComponents == 4;
+			case SCALE:
+				return numComponents == 1 || numComponents == 3;
+			case MORPH_WEIGHTS:
+				return numComponents > 0;
+			default:
+				return false;
+		}
+	}
 
 }

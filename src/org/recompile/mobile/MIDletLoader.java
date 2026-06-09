@@ -194,9 +194,9 @@ public class MIDletLoader extends URLClassLoader
 
             ArrayList<String> lines = new ArrayList<String>();
             for (int i = 0; i < strs.length; i++) {
-                line = strs[i].trim();
+                line = strs[i];
                 if (line.startsWith(" ")) {
-                    line = lines.get(lines.size() - 1) + line.trim();
+                    line = lines.get(lines.size() - 1).trim() + line.trim();
                     lines.remove(lines.size() - 1);
                 }
                 lines.add(line);

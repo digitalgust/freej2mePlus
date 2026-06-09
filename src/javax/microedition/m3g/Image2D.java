@@ -16,6 +16,8 @@
 */
 package javax.microedition.m3g;
 
+import javax.microedition.lcdui.Image;
+
 public class Image2D extends Object3D
 {
 
@@ -30,14 +32,87 @@ public class Image2D extends Object3D
 	private int width = 0;
 	private int height = 0;
 	private int format = RGB;
+	private boolean mutable = true;
 
-	public Image2D(int fmt, int w, int h) { width=w; height=h; format=fmt; }
+	public Image2D(int fmt, int w, int h)
+	{
+		validateFormat(fmt);
+		if (w <= 0 || h <= 0)
+		{
+			throw new IllegalArgumentException();
+		}
+		width = w;
+		height = h;
+		format = fmt;
+		image = new byte[w * h * getBytesPerPixel(fmt)];
+		mutable = true;
+	}
 
-	public Image2D(int fmt, int w, int h, byte[] img) { width=w; height=h; format=fmt; image=img; }
+	public Image2D(int fmt, int w, int h, byte[] img)
+	{
+		this(fmt, w, h);
+		if (img == null)
+		{
+			throw new NullPointerException();
+		}
+		if (img.length < image.length)
+		{
+			throw new IllegalArgumentException();
+		}
+		System.arraycopy(img, 0, image, 0, image.length);
+		mutable = false;
+	}
 
-	public Image2D(int fmt, int w, int h, byte[] img, byte[] Palette) { width=w; height=h; format=fmt; image=img; }
+	public Image2D(int fmt, int w, int h, byte[] img, byte[] palette)
+	{
+		this(fmt, w, h);
+		if (img == null || palette == null)
+		{
+			throw new NullPointerException();
+		}
+		int componentCount = getBytesPerPixel(fmt);
+		if (img.length < w * h)
+		{
+			throw new IllegalArgumentException();
+		}
+		if (palette.length < 256 * componentCount && (palette.length % componentCount) != 0)
+		{
+			throw new IllegalArgumentException();
+		}
+		int paletteEntries = palette.length / componentCount;
+		for (int i = 0; i < w * h; i++)
+		{
+			int index = img[i] & 0xFF;
+			if (index >= paletteEntries)
+			{
+				continue;
+			}
+			int src = index * componentCount;
+			int dst = i * componentCount;
+			System.arraycopy(palette, src, image, dst, componentCount);
+		}
+		mutable = false;
+	}
 
-	public Image2D(int fmt, Object img) { format=fmt; /*image=(byte[])img;*/ }
+	public Image2D(int fmt, Object img)
+	{
+		validateFormat(fmt);
+		if (img == null)
+		{
+			throw new NullPointerException();
+		}
+		if (!(img instanceof Image))
+		{
+			throw new IllegalArgumentException();
+		}
+
+		Image source = (Image) img;
+		width = source.getWidth();
+		height = source.getHeight();
+		format = fmt;
+		image = convertImage(source, fmt);
+		mutable = source.isMutable();
+	}
 
 
 	public int getFormat() { return format; }
@@ -46,7 +121,111 @@ public class Image2D extends Object3D
 
 	public int getWidth() { return width; }
 
-	public boolean isMutable() { return true; }
+	public boolean isMutable() { return mutable; }
 
-	public void set(int x, int y, int w, int h, byte[] img) { width=w; height=h; image=img; }
+	public void set(int x, int y, int w, int h, byte[] img)
+	{
+		if (!mutable)
+		{
+			throw new IllegalStateException();
+		}
+		if (img == null)
+		{
+			throw new NullPointerException();
+		}
+		if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > width || y + h > height)
+		{
+			throw new IllegalArgumentException();
+		}
+
+		int bytesPerPixel = getBytesPerPixel(format);
+		if (img.length < w * h * bytesPerPixel)
+		{
+			throw new IllegalArgumentException();
+		}
+
+		for (int row = 0; row < h; row++)
+		{
+			int srcOffset = row * w * bytesPerPixel;
+			int dstOffset = ((y + row) * width + x) * bytesPerPixel;
+			System.arraycopy(img, srcOffset, image, dstOffset, w * bytesPerPixel);
+		}
+	}
+
+	byte[] getImageData()
+	{
+		return image;
+	}
+
+	private static void validateFormat(int fmt)
+	{
+		if (fmt < ALPHA || fmt > RGBA)
+		{
+			throw new IllegalArgumentException();
+		}
+	}
+
+	private static int getBytesPerPixel(int fmt)
+	{
+		switch (fmt)
+		{
+			case ALPHA:
+			case LUMINANCE:
+				return 1;
+			case LUMINANCE_ALPHA:
+				return 2;
+			case RGB:
+				return 3;
+			case RGBA:
+				return 4;
+			default:
+				throw new IllegalArgumentException();
+		}
+	}
+
+	private static byte[] convertImage(Image source, int fmt)
+	{
+		int width = source.getWidth();
+		int height = source.getHeight();
+		int[] argb = new int[width * height];
+		source.getRGB(argb, 0, width, 0, 0, width, height);
+		byte[] data = new byte[argb.length * getBytesPerPixel(fmt)];
+		int out = 0;
+		for (int i = 0; i < argb.length; i++)
+		{
+			int pixel = argb[i];
+			int a = (pixel >>> 24) & 0xFF;
+			int r = (pixel >>> 16) & 0xFF;
+			int g = (pixel >>> 8) & 0xFF;
+			int b = pixel & 0xFF;
+			int luminance = (r + g + b) / 3;
+			switch (fmt)
+			{
+				case ALPHA:
+					data[out++] = (byte) a;
+					break;
+				case LUMINANCE:
+					data[out++] = (byte) luminance;
+					break;
+				case LUMINANCE_ALPHA:
+					data[out++] = (byte) luminance;
+					data[out++] = (byte) a;
+					break;
+				case RGB:
+					data[out++] = (byte) r;
+					data[out++] = (byte) g;
+					data[out++] = (byte) b;
+					break;
+				case RGBA:
+					data[out++] = (byte) r;
+					data[out++] = (byte) g;
+					data[out++] = (byte) b;
+					data[out++] = (byte) a;
+					break;
+				default:
+					throw new IllegalArgumentException();
+			}
+		}
+		return data;
+	}
 }

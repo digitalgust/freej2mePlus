@@ -25,7 +25,10 @@ public class Material extends Object3D
 	public static final int SPECULAR = 8192;
 
 
-	private int color;
+	private int ambientColor = 0x00333333;
+	private int diffuseColor = 0xFFCCCCCC;
+	private int emissiveColor = 0x00000000;
+	private int specularColor = 0x00000000;
 	private float shine;
 	private boolean tracking;
 
@@ -33,15 +36,60 @@ public class Material extends Object3D
 	public Material() {  }
 
 
-	public int getColor(int target) { return color; }
+	public int getColor(int target)
+	{
+		int color = 0;
+		if ((target & AMBIENT) != 0)
+		{
+			color |= ambientColor;
+		}
+		if ((target & DIFFUSE) != 0)
+		{
+			color |= diffuseColor;
+		}
+		if ((target & EMISSIVE) != 0)
+		{
+			color |= emissiveColor;
+		}
+		if ((target & SPECULAR) != 0)
+		{
+			color |= specularColor;
+		}
+		return color;
+	}
 
 	public float getShininess() { return shine; }
 
 	public boolean isVertexColorTrackingEnabled() { return tracking; }
 
-	public void setColor(int target, int ARGB) { color=ARGB; }
+	public void setColor(int target, int ARGB)
+	{
+		if ((target & AMBIENT) != 0)
+		{
+			ambientColor = (ambientColor & 0xFF000000) | (ARGB & 0x00FFFFFF);
+		}
+		if ((target & DIFFUSE) != 0)
+		{
+			diffuseColor = ARGB;
+		}
+		if ((target & EMISSIVE) != 0)
+		{
+			emissiveColor = (emissiveColor & 0xFF000000) | (ARGB & 0x00FFFFFF);
+		}
+		if ((target & SPECULAR) != 0)
+		{
+			specularColor = (specularColor & 0xFF000000) | (ARGB & 0x00FFFFFF);
+		}
+	}
 
-	public void setShininess(float shininess) { shine=shininess; }
+	public void setShininess(float shininess)
+	{
+		if (shininess < 0f)
+		{
+			throw new IllegalArgumentException();
+		}
+		shine = shininess;
+	}
 
 	public void setVertexColorTrackingEnable(boolean enable) { tracking = enable; }
 
