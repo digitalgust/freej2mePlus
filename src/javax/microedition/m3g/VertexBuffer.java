@@ -18,7 +18,7 @@ package javax.microedition.m3g;
 
 public class VertexBuffer extends Object3D
 {
-	private static final int MAX_TEXTURE_UNITS = 1;
+	private static final int MAX_TEXTURE_UNITS = 2;
 
 	private VertexArray positions;
 	private VertexArray normals;

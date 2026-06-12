@@ -18,13 +18,14 @@ package javax.microedition.m3g;
 
 public class Appearance extends Object3D
 {
+	private static final int MAX_TEXTURE_UNITS = 2;
 
 	private CompositingMode compositingMode;
 	private Fog fog;
 	private Material material;
 	private PolygonMode polygonMode;
 	private int layer;
-	private Texture2D texture;
+	private final Texture2D[] textures = new Texture2D[MAX_TEXTURE_UNITS];
 
 
 	public Appearance() {  }
@@ -40,7 +41,11 @@ public class Appearance extends Object3D
 
 	public PolygonMode getPolygonMode() { return polygonMode; }
 
-	public Texture2D getTexture(int index) { return texture; }
+	public Texture2D getTexture(int index)
+	{
+		checkTextureIndex(index);
+		return textures[index];
+	}
 
 	public void setCompositingMode(CompositingMode compMode) { compositingMode = compMode; }
 
@@ -52,6 +57,18 @@ public class Appearance extends Object3D
 
 	public void setPolygonMode(PolygonMode mode) { polygonMode = mode; }
 
-	public void setTexture(int index, Texture2D tex) { texture = tex; }
+	public void setTexture(int index, Texture2D tex)
+	{
+		checkTextureIndex(index);
+		textures[index] = tex;
+	}
+
+	private void checkTextureIndex(int index)
+	{
+		if (index < 0 || index >= MAX_TEXTURE_UNITS)
+		{
+			throw new IndexOutOfBoundsException();
+		}
+	}
 
 }

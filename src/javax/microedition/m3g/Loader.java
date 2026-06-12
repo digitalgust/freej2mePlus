@@ -739,7 +739,7 @@ public class Loader
 			appearance.setPolygonMode((PolygonMode) resolveObjectReference(objectTable, reader.readObjectIndex(), PolygonMode.class, "appearance polygon mode"));
 			appearance.setMaterial((Material) resolveObjectReference(objectTable, reader.readObjectIndex(), Material.class, "appearance material"));
 			int textureCount = readCount(reader, "appearance texture count");
-			if (textureCount > 1)
+			if (textureCount > 2)
 			{
 				throw new IOException("Unsupported appearance texture unit count: " + textureCount);
 			}
@@ -755,9 +755,16 @@ public class Loader
 			Background background = new Background();
 			readObject3D(reader, background, null);
 			background.setColor(readColorRGBA(reader));
-			background.setImage((Image2D) resolveObjectReference(objectTable, reader.readObjectIndex(), Image2D.class, "background image"));
-			background.setImageMode(reader.readByte(), reader.readByte());
-			background.setCrop(reader.readInt32(), reader.readInt32(), reader.readInt32(), reader.readInt32());
+			Image2D image = (Image2D) resolveObjectReference(objectTable, reader.readObjectIndex(), Image2D.class, "background image");
+			background.setImage(image);
+			int modeX = reader.readByte();
+			int modeY = reader.readByte();
+			background.setImageMode(modeX, modeY);
+			int cropX = reader.readInt32();
+			int cropY = reader.readInt32();
+			int cropWidth = reader.readInt32();
+			int cropHeight = reader.readInt32();
+			background.setCrop(cropX, cropY, cropWidth, cropHeight);
 			background.setDepthClearEnable(reader.readBoolean());
 			background.setColorClearEnable(reader.readBoolean());
 			return background;
@@ -981,6 +988,7 @@ public class Loader
 			MeshState state = readMeshState(reader, objectTable);
 			Group skeleton = (Group) requireObjectReference(objectTable, reader.readObjectIndex(), Group.class, "skinned mesh skeleton");
 			SkinnedMesh mesh = new SkinnedMesh(state.vertexBuffer, state.indexBuffers, state.appearances, skeleton);
+			applyDeferredNodeState(mesh, state.nodeState, objectTable);
 			int transformReferenceCount = readCount(reader, "skinned mesh transform reference count");
 			for (int i = 0; i < transformReferenceCount; i++)
 			{
@@ -990,7 +998,6 @@ public class Loader
 				int weight = reader.readInt32();
 				mesh.addTransform(bone, weight, firstVertex, vertexCount);
 			}
-			applyDeferredNodeState(mesh, state.nodeState, objectTable);
 			return mesh;
 		}
 
@@ -1016,7 +1023,11 @@ public class Loader
 			Appearance appearance = (Appearance) resolveObjectReference(objectTable, reader.readObjectIndex(), Appearance.class, "sprite appearance");
 			boolean scaled = reader.readBoolean();
 			Sprite3D sprite = new Sprite3D(scaled, image, appearance);
-			sprite.setCrop(reader.readInt32(), reader.readInt32(), reader.readInt32(), reader.readInt32());
+			int cropX = reader.readInt32();
+			int cropY = reader.readInt32();
+			int cropWidth = reader.readInt32();
+			int cropHeight = reader.readInt32();
+			sprite.setCrop(cropX, cropY, cropWidth, cropHeight);
 			applyDeferredNodeState(sprite, state, objectTable);
 			return sprite;
 		}
@@ -1166,9 +1177,10 @@ public class Loader
 			float positionScale = reader.readFloat32();
 			buffer.setPositions(positions, positionScale, positionBias);
 			buffer.setNormals((VertexArray) resolveObjectReference(objectTable, reader.readObjectIndex(), VertexArray.class, "vertex buffer normals"));
-			buffer.setColors((VertexArray) resolveObjectReference(objectTable, reader.readObjectIndex(), VertexArray.class, "vertex buffer colors"));
+			VertexArray colors = (VertexArray) resolveObjectReference(objectTable, reader.readObjectIndex(), VertexArray.class, "vertex buffer colors");
+			buffer.setColors(colors);
 			int texcoordArrayCount = readCount(reader, "vertex buffer texcoord array count");
-			if (texcoordArrayCount > 1)
+			if (texcoordArrayCount > 2)
 			{
 				throw new IOException("Unsupported vertex buffer texcoord array count: " + texcoordArrayCount);
 			}

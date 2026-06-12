@@ -28,7 +28,6 @@ import javax.microedition.lcdui.Graphics;
 
 public class Graphics3D
 {
-
 	public static final int ANTIALIAS = 2;
 	public static final int DITHER = 4;
 	public static final int OVERWRITE = 16;
@@ -38,6 +37,7 @@ public class Graphics3D
 	private static Hashtable properties;
 	private static final int VALID_HINTS = ANTIALIAS | DITHER | OVERWRITE | TRUE_COLOR;
 	private static final String MINIJVM_BACKEND_FACTORY = "javax.microedition.m3g.MiniJvmGraphics3DFactory";
+	private static final int MAX_TEXTURE_UNITS = 2;
 
 	private int viewx;
 	private int viewy;
@@ -72,7 +72,7 @@ public class Graphics3D
 		properties.put("maxTextureDimension", Integer.valueOf(4096));
 		properties.put("maxSpriteCropDimension", Integer.valueOf(4096));
 		properties.put("maxTransformsPerVertex", Integer.valueOf(2));
-		properties.put("numTextureUnits", Integer.valueOf(1));
+			properties.put("numTextureUnits", Integer.valueOf(2));
 	}
 
 
@@ -242,15 +242,33 @@ public class Graphics3D
 		if (node instanceof Mesh)
 		{
 			Mesh mesh = (Mesh) node;
-			VertexBuffer vertices = mesh instanceof MorphingMesh
-					? createMorphedVertexBuffer((MorphingMesh) mesh)
-					: mesh.getVertexBuffer();
 			for (int i = 0; i < mesh.getSubmeshCount(); i++)
 			{
 				Appearance appearance = mesh.getAppearance(i);
 				if (appearance != null)
 				{
-					render(vertices, mesh.getIndexBuffer(i), appearance, combined, node.getScope());
+					IndexBuffer triangles = mesh.getIndexBuffer(i);
+					if (mesh instanceof SkinnedMesh
+							&& backend instanceof SkinningBackend
+							&& triangles instanceof TriangleStripArray
+							&& ((SkinningBackend) backend).renderSkinned((SkinnedMesh) mesh, (TriangleStripArray) triangles, appearance, combined))
+					{
+						continue;
+					}
+					VertexBuffer vertices;
+					if (mesh instanceof MorphingMesh)
+					{
+						vertices = createMorphedVertexBuffer((MorphingMesh) mesh);
+					}
+					else if (mesh instanceof SkinnedMesh)
+					{
+						vertices = createSkinnedVertexBuffer((SkinnedMesh) mesh);
+					}
+					else
+					{
+						vertices = mesh.getVertexBuffer();
+					}
+					render(vertices, triangles, appearance, combined, node.getScope());
 				}
 			}
 			return;
@@ -465,7 +483,9 @@ public class Graphics3D
 			Node child = group.getChild(i);
 			if (child instanceof Light && child.isRenderingEnabled())
 			{
-				addLight((Light) child, null);
+				Transform lightTransform = new Transform();
+				child.getCompositeTransform(lightTransform);
+				addLight((Light) child, lightTransform);
 			}
 			if (child instanceof Group)
 			{
@@ -694,19 +714,30 @@ public class Graphics3D
 		Transform projection = camera.getProjectionTransform(vieww, viewh);
 		Transform view = new Transform(cameraTransform);
 		view.invert();
+		Transform modelView = new Transform(view);
+		modelView.postMultiply(copyTransform(transform));
 		Transform modelViewProjection = new Transform(projection);
-		modelViewProjection.postMultiply(view);
-		modelViewProjection.postMultiply(copyTransform(transform));
+		modelViewProjection.postMultiply(modelView);
 
+		VertexArray normalArray = vertices.getNormals();
 		VertexArray colorArray = vertices.getColors();
-		VertexArray texCoordArray = vertices.getTexCoords(0, null);
+		VertexArray[] texCoordArrays = new VertexArray[MAX_TEXTURE_UNITS];
+		float[][] texScaleBias = new float[MAX_TEXTURE_UNITS][];
+		for (int unit = 0; unit < MAX_TEXTURE_UNITS; unit++)
+		{
+			texCoordArrays[unit] = vertices.getTexCoords(unit, null);
+			if (texCoordArrays[unit] != null)
+			{
+				texScaleBias[unit] = vertices.getTexCoordScaleBias(unit);
+			}
+		}
 		float[] positionScaleBias = vertices.getPositionScaleBias();
-		float[] texScaleBias = texCoordArray != null ? vertices.getTexCoordScaleBias(0) : null;
-		TextureInfo texture = getTextureInfo(appearance, texCoordArray != null);
+		TextureInfo[] textures = getTextureInfos(appearance, texCoordArrays);
+		FogInfo fog = getFogInfo(appearance);
 		PolygonMode polygonMode = appearance != null ? appearance.getPolygonMode() : null;
 		CompositingMode compositingMode = appearance != null ? appearance.getCompositingMode() : null;
 		int defaultColor = resolveBaseColor(vertices, appearance);
-		ProjectedVertex[] projected = projectVertices(vertices, positionArray, colorArray, texCoordArray, positionScaleBias, texScaleBias, modelViewProjection, defaultColor, texture);
+		ProjectedVertex[] projected = projectVertices(vertices, positionArray, normalArray, colorArray, texCoordArrays, positionScaleBias, texScaleBias, modelViewProjection, modelView, copyTransform(transform), appearance, defaultColor, textures, fog);
 		int[] rawIndices = triangles.getRawIndices();
 		int[] stripLengths = triangles.getStripLengths();
 		int base = 0;
@@ -724,7 +755,7 @@ public class Graphics3D
 					i1 = i2;
 					i2 = swap;
 				}
-				rasterizeClippedTriangle(surface, projected[i0], projected[i1], projected[i2], polygonMode, compositingMode, texture);
+				rasterizeClippedTriangle(surface, projected[i0], projected[i1], projected[i2], polygonMode, compositingMode, textures, fog);
 			}
 			base += stripLength;
 		}
@@ -755,8 +786,9 @@ public class Graphics3D
 			return null;
 		}
 
-		float halfWidth = (Math.abs(cropWidth) / (float) image.getWidth()) * 0.5f;
-		float halfHeight = (Math.abs(cropHeight) / (float) image.getHeight()) * 0.5f;
+		int imageSpan = Math.max(image.getWidth(), image.getHeight());
+		float halfWidth = (Math.abs(cropWidth) / (float) imageSpan) * 0.5f;
+		float halfHeight = (Math.abs(cropHeight) / (float) imageSpan) * 0.5f;
 		if (halfWidth <= 0f || halfHeight <= 0f)
 		{
 			return null;
@@ -875,9 +907,29 @@ public class Graphics3D
 		float sx = (float) Math.sqrt(matrix[0] * matrix[0] + matrix[4] * matrix[4] + matrix[8] * matrix[8]);
 		float sy = (float) Math.sqrt(matrix[1] * matrix[1] + matrix[5] * matrix[5] + matrix[9] * matrix[9]);
 		float sz = (float) Math.sqrt(matrix[2] * matrix[2] + matrix[6] * matrix[6] + matrix[10] * matrix[10]);
-
-		billboard.postTranslate(tx, ty, tz);
-		billboard.postScale(sx == 0f ? 1f : sx, sy == 0f ? 1f : sy, sz == 0f ? 1f : sz);
+		float[] cameraMatrix = cameraTransform.getMatrix();
+		float cameraSx = (float) Math.sqrt(cameraMatrix[0] * cameraMatrix[0] + cameraMatrix[4] * cameraMatrix[4] + cameraMatrix[8] * cameraMatrix[8]);
+		float cameraSy = (float) Math.sqrt(cameraMatrix[1] * cameraMatrix[1] + cameraMatrix[5] * cameraMatrix[5] + cameraMatrix[9] * cameraMatrix[9]);
+		float cameraSz = (float) Math.sqrt(cameraMatrix[2] * cameraMatrix[2] + cameraMatrix[6] * cameraMatrix[6] + cameraMatrix[10] * cameraMatrix[10]);
+		float safeSx = sx == 0f ? 1f : sx;
+		float safeSy = sy == 0f ? 1f : sy;
+		float safeSz = sz == 0f ? 1f : sz;
+		float safeCameraSx = cameraSx == 0f ? 1f : cameraSx;
+		float safeCameraSy = cameraSy == 0f ? 1f : cameraSy;
+		float safeCameraSz = cameraSz == 0f ? 1f : cameraSz;
+		float[] billboardMatrix = billboard.getMatrix();
+		billboardMatrix[0] = (cameraMatrix[0] / safeCameraSx) * safeSx;
+		billboardMatrix[1] = (cameraMatrix[1] / safeCameraSy) * safeSy;
+		billboardMatrix[2] = (cameraMatrix[2] / safeCameraSz) * safeSz;
+		billboardMatrix[3] = tx;
+		billboardMatrix[4] = (cameraMatrix[4] / safeCameraSx) * safeSx;
+		billboardMatrix[5] = (cameraMatrix[5] / safeCameraSy) * safeSy;
+		billboardMatrix[6] = (cameraMatrix[6] / safeCameraSz) * safeSz;
+		billboardMatrix[7] = ty;
+		billboardMatrix[8] = (cameraMatrix[8] / safeCameraSx) * safeSx;
+		billboardMatrix[9] = (cameraMatrix[9] / safeCameraSy) * safeSy;
+		billboardMatrix[10] = (cameraMatrix[10] / safeCameraSz) * safeSz;
+		billboardMatrix[11] = tz;
 		return billboard;
 	}
 
@@ -911,16 +963,24 @@ public class Graphics3D
 			morphed.setDefaultColor(resolveMorphedDefaultColor(base, mesh, weights));
 		}
 
-		VertexArray texCoords = resolveMorphedArray(base.getTexCoords(0, null), mesh, weights, MorphAttribute.TEXCOORDS0);
-		if (texCoords != null)
+		for (int unit = 0; unit < MAX_TEXTURE_UNITS; unit++)
 		{
-			float[] texScaleBias = base.getTexCoordScaleBias(0);
-			morphed.setTexCoords(0, texCoords, texScaleBias[0], new float[] {
-					texScaleBias[1], texScaleBias[2], texScaleBias[3]
-			});
+			VertexArray texCoords = resolveMorphedArray(base.getTexCoords(unit, null), mesh, weights, MorphAttribute.TEXCOORDS0 + unit);
+			if (texCoords != null)
+			{
+				float[] texScaleBias = base.getTexCoordScaleBias(unit);
+				morphed.setTexCoords(unit, texCoords, texScaleBias[0], new float[] {
+						texScaleBias[1], texScaleBias[2], texScaleBias[3]
+				});
+			}
 		}
 
 		return morphed;
+	}
+
+	private VertexBuffer createSkinnedVertexBuffer(SkinnedMesh mesh)
+	{
+		return mesh.getSkinnedVertexBuffer();
 	}
 
 	private VertexArray resolveMorphedArray(VertexArray baseArray, MorphingMesh mesh, float[] weights, int attribute)
@@ -977,6 +1037,8 @@ public class Graphics3D
 				return buffer.getColors();
 			case MorphAttribute.TEXCOORDS0:
 				return buffer.getTexCoords(0, null);
+			case MorphAttribute.TEXCOORDS1:
+				return buffer.getTexCoords(1, null);
 			default:
 				return null;
 		}
@@ -1102,15 +1164,32 @@ public class Graphics3D
 				| clampColor(Math.round(b));
 	}
 
-	private ProjectedVertex[] projectVertices(VertexBuffer vertices, VertexArray positionArray, VertexArray colorArray, VertexArray texCoordArray, float[] positionScaleBias, float[] texScaleBias, Transform modelViewProjection, int defaultColor, TextureInfo texture)
+	private ProjectedVertex[] projectVertices(VertexBuffer vertices, VertexArray positionArray, VertexArray normalArray, VertexArray colorArray, VertexArray[] texCoordArrays, float[] positionScaleBias, float[][] texScaleBias, Transform modelViewProjection, Transform modelView, Transform modelTransform, Appearance appearance, int defaultColor, TextureInfo[] textures, FogInfo fog)
 	{
 		int vertexCount = vertices.getVertexCount();
 		ProjectedVertex[] projected = new ProjectedVertex[vertexCount];
 		float[] matrix = modelViewProjection.getMatrix();
+		float[] modelViewMatrix = modelView.getMatrix();
+		float[] modelMatrix = modelTransform.getMatrix();
+		Material material = appearance != null ? appearance.getMaterial() : null;
+		boolean applyLighting = !hasAnyTexture(textures) && material != null && normalArray != null && getLightCount() > 0;
+		boolean applyFog = fog != null;
 		float[] input = new float[4];
 		float[] clip = new float[4];
-		float[] texInput = texture != null && texture.transformMatrix != null ? new float[4] : null;
-		float[] texOutput = texture != null && texture.transformMatrix != null ? new float[4] : null;
+		float[] world = applyLighting ? new float[4] : null;
+		float[] eye = applyFog ? new float[4] : null;
+		float[] normalInput = applyLighting ? new float[4] : null;
+		float[] normalWorld = applyLighting ? new float[4] : null;
+		float[][] texInputs = new float[MAX_TEXTURE_UNITS][];
+		float[][] texOutputs = new float[MAX_TEXTURE_UNITS][];
+		for (int unit = 0; unit < MAX_TEXTURE_UNITS; unit++)
+		{
+			if (textures != null && textures[unit] != null && textures[unit].transformMatrix != null)
+			{
+				texInputs[unit] = new float[4];
+				texOutputs[unit] = new float[4];
+			}
+		}
 		for (int i = 0; i < vertexCount; i++)
 		{
 			ProjectedVertex vertex = new ProjectedVertex();
@@ -1128,34 +1207,238 @@ public class Graphics3D
 			{
 				updateProjectedVertex(vertex);
 			}
-			int vertexColor = colorArray != null ? getVertexColor(colorArray, i) : defaultColor;
+			if (applyFog)
+			{
+				M3GMath.transform(modelViewMatrix, input, 0, eye, 0);
+				vertex.fogDistance = (float) Math.sqrt(eye[0] * eye[0] + eye[1] * eye[1] + eye[2] * eye[2]);
+			}
+			int trackedColor = colorArray != null ? getVertexColor(colorArray, i) : vertices.getDefaultColor();
+			int vertexColor = colorArray != null ? trackedColor : defaultColor;
+			if (applyLighting)
+			{
+				M3GMath.transform(modelMatrix, input, 0, world, 0);
+				normalInput[0] = normalArray.getComponentAsFloat(i, 0);
+				normalInput[1] = normalArray.getComponentAsFloat(i, 1);
+				normalInput[2] = normalArray.getComponentAsFloat(i, 2);
+				normalInput[3] = 0f;
+				M3GMath.transform(modelMatrix, normalInput, 0, normalWorld, 0);
+				vertexColor = applyLighting(trackedColor, material, world, normalWorld);
+			}
 			vertex.a = (vertexColor >>> 24) & 0xFF;
 			vertex.r = (vertexColor >>> 16) & 0xFF;
 			vertex.g = (vertexColor >>> 8) & 0xFF;
 			vertex.b = vertexColor & 0xFF;
-			if (texCoordArray != null)
+			for (int unit = 0; unit < MAX_TEXTURE_UNITS; unit++)
 			{
-				float u = texCoordArray.getComponentAsFloat(i, 0) * texScaleBias[0] + texScaleBias[1];
-				float v = texCoordArray.getComponentAsFloat(i, 1) * texScaleBias[0] + texScaleBias[2];
-				if (texture != null && texture.transformMatrix != null)
+				VertexArray texCoordArray = texCoordArrays[unit];
+				if (texCoordArray == null)
 				{
+					continue;
+				}
+				float u = texCoordArray.getComponentAsFloat(i, 0) * texScaleBias[unit][0] + texScaleBias[unit][1];
+				float v = texCoordArray.getComponentAsFloat(i, 1) * texScaleBias[unit][0] + texScaleBias[unit][2];
+				if (textures != null && textures[unit] != null && textures[unit].transformMatrix != null)
+				{
+					float[] texInput = texInputs[unit];
+					float[] texOutput = texOutputs[unit];
 					texInput[0] = u;
 					texInput[1] = v;
 					texInput[2] = 0f;
 					texInput[3] = 1f;
-					M3GMath.transform(texture.transformMatrix, texInput, 0, texOutput, 0);
+					M3GMath.transform(textures[unit].transformMatrix, texInput, 0, texOutput, 0);
 					u = texOutput[0];
 					v = texOutput[1];
 				}
-				vertex.u = u;
-				vertex.v = v;
+				vertex.u[unit] = u;
+				vertex.v[unit] = v;
 			}
 			projected[i] = vertex;
 		}
 		return projected;
 	}
 
-	private void rasterizeClippedTriangle(RenderSurface surface, ProjectedVertex v0, ProjectedVertex v1, ProjectedVertex v2, PolygonMode polygonMode, CompositingMode compositingMode, TextureInfo texture)
+	private int applyLighting(int trackedColor, Material material, float[] worldPosition, float[] worldNormal)
+	{
+		float nx = worldNormal[0];
+		float ny = worldNormal[1];
+		float nz = worldNormal[2];
+		float normalLength = (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
+		if (normalLength <= 1.0e-6f)
+		{
+			return trackedColor;
+		}
+		nx /= normalLength;
+		ny /= normalLength;
+		nz /= normalLength;
+
+		float ambientR = 0f;
+		float ambientG = 0f;
+		float ambientB = 0f;
+		float diffuseR = 0f;
+		float diffuseG = 0f;
+		float diffuseB = 0f;
+		float specularR = 0f;
+		float specularG = 0f;
+		float specularB = 0f;
+		float[] cameraMatrix = cameraTransform.getMatrix();
+		float vx = cameraMatrix[3] - worldPosition[0];
+		float vy = cameraMatrix[7] - worldPosition[1];
+		float vz = cameraMatrix[11] - worldPosition[2];
+		float viewLength = (float) Math.sqrt(vx * vx + vy * vy + vz * vz);
+		if (viewLength > 1.0e-6f)
+		{
+			vx /= viewLength;
+			vy /= viewLength;
+			vz /= viewLength;
+		}
+		else
+		{
+			vx = 0f;
+			vy = 0f;
+			vz = 1f;
+		}
+		float[] lightMatrix = new float[16];
+		Transform lightTransform = new Transform();
+		for (int i = 0; i < getLightCount(); i++)
+		{
+			Light light = getLight(i, lightTransform);
+			lightTransform.get(lightMatrix);
+			float intensity = light.getIntensity();
+			float lightR = (((light.getColor() >>> 16) & 0xFF) / 255f) * intensity;
+			float lightG = (((light.getColor() >>> 8) & 0xFF) / 255f) * intensity;
+			float lightB = ((light.getColor() & 0xFF) / 255f) * intensity;
+			if (light.getMode() == Light.AMBIENT)
+			{
+				ambientR += lightR;
+				ambientG += lightG;
+				ambientB += lightB;
+				continue;
+			}
+
+			float lx;
+			float ly;
+			float lz;
+			float attenuation = 1f;
+			float spotFactor = 1f;
+			if (light.getMode() == Light.OMNI || light.getMode() == Light.SPOT)
+			{
+				lx = lightMatrix[3] - worldPosition[0];
+				ly = lightMatrix[7] - worldPosition[1];
+				lz = lightMatrix[11] - worldPosition[2];
+				float distance = (float) Math.sqrt(lx * lx + ly * ly + lz * lz);
+				if (distance <= 1.0e-6f)
+				{
+					continue;
+				}
+				lx /= distance;
+				ly /= distance;
+				lz /= distance;
+				float denominator = light.getConstantAttenuation()
+						+ light.getLinearAttenuation() * distance
+						+ light.getQuadraticAttenuation() * distance * distance;
+				if (denominator > 1.0e-6f)
+				{
+					attenuation = 1f / denominator;
+				}
+				if (light.getMode() == Light.SPOT)
+				{
+					float spotDirX = -lightMatrix[2];
+					float spotDirY = -lightMatrix[6];
+					float spotDirZ = -lightMatrix[10];
+					float spotLength = (float) Math.sqrt(spotDirX * spotDirX + spotDirY * spotDirY + spotDirZ * spotDirZ);
+					if (spotLength <= 1.0e-6f)
+					{
+						continue;
+					}
+					spotDirX /= spotLength;
+					spotDirY /= spotLength;
+					spotDirZ /= spotLength;
+					float cosTheta = -(lx * spotDirX + ly * spotDirY + lz * spotDirZ);
+					float spotAngle = light.getSpotAngle();
+					if (spotAngle >= 0f && spotAngle < 180f)
+					{
+						float cutoff = (float) Math.cos(Math.toRadians(spotAngle * 0.5f));
+						if (cosTheta < cutoff)
+						{
+							continue;
+						}
+					}
+					spotFactor = (float) Math.pow(Math.max(0f, cosTheta), Math.max(0f, light.getSpotExponent()));
+				}
+			}
+			else
+			{
+				lx = -lightMatrix[2];
+				ly = -lightMatrix[6];
+				lz = -lightMatrix[10];
+				float length = (float) Math.sqrt(lx * lx + ly * ly + lz * lz);
+				if (length <= 1.0e-6f)
+				{
+					continue;
+				}
+				lx /= length;
+				ly /= length;
+				lz /= length;
+			}
+
+			float ndotl = nx * lx + ny * ly + nz * lz;
+			if (ndotl > 0f)
+			{
+				float lightingScale = attenuation * spotFactor;
+				diffuseR += lightR * ndotl * lightingScale;
+				diffuseG += lightG * ndotl * lightingScale;
+				diffuseB += lightB * ndotl * lightingScale;
+				int specularColor = material.getColor(Material.SPECULAR);
+				float shininess = material.getShininess();
+				if ((specularColor & 0x00FFFFFF) != 0 && shininess > 0f)
+				{
+					float hx = lx + vx;
+					float hy = ly + vy;
+					float hz = lz + vz;
+					float halfLength = (float) Math.sqrt(hx * hx + hy * hy + hz * hz);
+					if (halfLength > 1.0e-6f)
+					{
+						hx /= halfLength;
+						hy /= halfLength;
+						hz /= halfLength;
+						float ndoth = Math.max(0f, nx * hx + ny * hy + nz * hz);
+						if (ndoth > 0f)
+						{
+							float specularFactor = (float) Math.pow(ndoth, Math.max(1f, shininess)) * lightingScale;
+							specularR += lightR * specularFactor;
+							specularG += lightG * specularFactor;
+							specularB += lightB * specularFactor;
+						}
+					}
+				}
+			}
+		}
+
+		int ambientColor = material.isVertexColorTrackingEnabled()
+				? (trackedColor & 0x00FFFFFF)
+				: material.getColor(Material.AMBIENT);
+		int diffuseColor = material.isVertexColorTrackingEnabled()
+				? trackedColor
+				: material.getColor(Material.DIFFUSE);
+		int emissiveColor = material.getColor(Material.EMISSIVE);
+		int specularColor = material.getColor(Material.SPECULAR);
+		float diffuseRBase = ((diffuseColor >>> 16) & 0xFF) / 255f;
+		float diffuseGBase = ((diffuseColor >>> 8) & 0xFF) / 255f;
+		float diffuseBBase = (diffuseColor & 0xFF) / 255f;
+		float specularRBase = ((specularColor >>> 16) & 0xFF) / 255f;
+		float specularGBase = ((specularColor >>> 8) & 0xFF) / 255f;
+		float specularBBase = (specularColor & 0xFF) / 255f;
+		float outR = (((emissiveColor >>> 16) & 0xFF) / 255f) + ((((ambientColor >>> 16) & 0xFF) / 255f) * ambientR) + (diffuseRBase * diffuseR) + (specularRBase * specularR);
+		float outG = (((emissiveColor >>> 8) & 0xFF) / 255f) + ((((ambientColor >>> 8) & 0xFF) / 255f) * ambientG) + (diffuseGBase * diffuseG) + (specularGBase * specularG);
+		float outB = ((emissiveColor & 0xFF) / 255f) + (((ambientColor & 0xFF) / 255f) * ambientB) + (diffuseBBase * diffuseB) + (specularBBase * specularB);
+		int alpha = (diffuseColor >>> 24) & 0xFF;
+		return (alpha << 24)
+				| (clampColor(Math.round(outR * 255f)) << 16)
+				| (clampColor(Math.round(outG * 255f)) << 8)
+				| clampColor(Math.round(outB * 255f));
+	}
+
+	private void rasterizeClippedTriangle(RenderSurface surface, ProjectedVertex v0, ProjectedVertex v1, ProjectedVertex v2, PolygonMode polygonMode, CompositingMode compositingMode, TextureInfo[] textures, FogInfo fog)
 	{
 		ProjectedVertex[] polygon = new ProjectedVertex[] {
 				copyProjectedVertex(v0),
@@ -1174,7 +1457,7 @@ public class Graphics3D
 		}
 		for (int i = 1; i < polygon.length - 1; i++)
 		{
-			rasterizeTriangle(surface, polygon[0], polygon[i], polygon[i + 1], polygonMode, compositingMode, texture);
+			rasterizeTriangle(surface, polygon[0], polygon[i], polygon[i + 1], polygonMode, compositingMode, textures, fog);
 		}
 	}
 
@@ -1247,8 +1530,12 @@ public class Graphics3D
 		vertex.r = interpolate(a.r, b.r, t);
 		vertex.g = interpolate(a.g, b.g, t);
 		vertex.b = interpolate(a.b, b.b, t);
-		vertex.u = interpolate(a.u, b.u, t);
-		vertex.v = interpolate(a.v, b.v, t);
+		vertex.fogDistance = interpolate(a.fogDistance, b.fogDistance, t);
+		for (int unit = 0; unit < MAX_TEXTURE_UNITS; unit++)
+		{
+			vertex.u[unit] = interpolate(a.u[unit], b.u[unit], t);
+			vertex.v[unit] = interpolate(a.v[unit], b.v[unit], t);
+		}
 		vertex.visible = Math.abs(vertex.clipW) > 1.0e-6f;
 		if (vertex.visible)
 		{
@@ -1271,8 +1558,12 @@ public class Graphics3D
 		copy.y = source.y;
 		copy.z = source.z;
 		copy.invW = source.invW;
-		copy.u = source.u;
-		copy.v = source.v;
+		copy.fogDistance = source.fogDistance;
+		for (int unit = 0; unit < MAX_TEXTURE_UNITS; unit++)
+		{
+			copy.u[unit] = source.u[unit];
+			copy.v[unit] = source.v[unit];
+		}
 		copy.a = source.a;
 		copy.r = source.r;
 		copy.g = source.g;
@@ -1291,7 +1582,7 @@ public class Graphics3D
 		vertex.z = near + (((ndcZ * 0.5f) + 0.5f) * (far - near));
 	}
 
-	private void rasterizeTriangle(RenderSurface surface, ProjectedVertex v0, ProjectedVertex v1, ProjectedVertex v2, PolygonMode polygonMode, CompositingMode compositingMode, TextureInfo texture)
+	private void rasterizeTriangle(RenderSurface surface, ProjectedVertex v0, ProjectedVertex v1, ProjectedVertex v2, PolygonMode polygonMode, CompositingMode compositingMode, TextureInfo[] textures, FogInfo fog)
 	{
 		if (!v0.visible || !v1.visible || !v2.visible)
 		{
@@ -1352,22 +1643,33 @@ public class Graphics3D
 
 				int baseColor = flatShading ? toColor(v0) : interpolateColor(v0, v1, v2, w0, w1, w2);
 				int finalColor = baseColor;
-				if (texture != null)
+				float denominator = 0f;
+				boolean usePerspectiveInterpolation = hasAnyTexture(textures) || fog != null;
+				if (usePerspectiveInterpolation)
 				{
-					float denominator = w0 * v0.invW + w1 * v1.invW + w2 * v2.invW;
+					denominator = w0 * v0.invW + w1 * v1.invW + w2 * v2.invW;
 					if (Math.abs(denominator) <= 1.0e-6f)
 					{
 						continue;
 					}
-					float u = (w0 * v0.u * v0.invW + w1 * v1.u * v1.invW + w2 * v2.u * v2.invW) / denominator;
-					float v = (w0 * v0.v * v0.invW + w1 * v1.v * v1.invW + w2 * v2.v * v2.invW) / denominator;
-					finalColor = combineTexture(texture, baseColor, u, v);
+				}
+				for (int unit = 0; unit < MAX_TEXTURE_UNITS; unit++)
+				{
+					TextureInfo texture = textures != null ? textures[unit] : null;
+					if (texture == null)
+					{
+						continue;
+					}
+					float u = (w0 * v0.u[unit] * v0.invW + w1 * v1.u[unit] * v1.invW + w2 * v2.u[unit] * v2.invW) / denominator;
+					float v = (w0 * v0.v[unit] * v0.invW + w1 * v1.v[unit] * v1.invW + w2 * v2.v[unit] * v2.invW) / denominator;
+					finalColor = combineTexture(texture, finalColor, u, v);
+				}
+				if (fog != null)
+				{
+					float fogDistance = (w0 * v0.fogDistance * v0.invW + w1 * v1.fogDistance * v1.invW + w2 * v2.fogDistance * v2.invW) / denominator;
+					finalColor = applyFog(finalColor, fog, fogDistance);
 				}
 				int srcAlpha = (finalColor >>> 24) & 0xFF;
-				if (srcAlpha == 0)
-				{
-					continue;
-				}
 				if (srcAlpha < Math.round(alphaThreshold * 255f))
 				{
 					continue;
@@ -1430,31 +1732,76 @@ public class Graphics3D
 		return null;
 	}
 
-	private TextureInfo getTextureInfo(Appearance appearance, boolean hasTexCoords)
+	private TextureInfo[] getTextureInfos(Appearance appearance, VertexArray[] texCoordArrays)
 	{
-		if (appearance == null || !hasTexCoords)
+		TextureInfo[] infos = new TextureInfo[MAX_TEXTURE_UNITS];
+		if (appearance == null)
+		{
+			return infos;
+		}
+		for (int unit = 0; unit < MAX_TEXTURE_UNITS; unit++)
+		{
+			if (texCoordArrays[unit] == null)
+			{
+				continue;
+			}
+			Texture2D texture = appearance.getTexture(unit);
+			if (texture == null || texture.getImage() == null)
+			{
+				continue;
+			}
+			Image2D image = texture.getImage();
+			if (image.getFormat() != Image2D.RGB && image.getFormat() != Image2D.RGBA)
+			{
+				continue;
+			}
+			TextureInfo info = new TextureInfo();
+			info.image = image;
+			info.wrapS = texture.getWrappingS();
+			info.wrapT = texture.getWrappingT();
+			info.blending = texture.getBlending();
+			info.blendColor = texture.getBlendColor() | 0xFF000000;
+			Transform textureTransform = new Transform();
+			texture.getCompositeTransform(textureTransform);
+			info.transformMatrix = textureTransform.getMatrix().clone();
+			infos[unit] = info;
+		}
+		return infos;
+	}
+
+	private boolean hasAnyTexture(TextureInfo[] textures)
+	{
+		if (textures == null)
+		{
+			return false;
+		}
+		for (int unit = 0; unit < MAX_TEXTURE_UNITS; unit++)
+		{
+			if (textures[unit] != null)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private FogInfo getFogInfo(Appearance appearance)
+	{
+		if (appearance == null)
 		{
 			return null;
 		}
-		Texture2D texture = appearance.getTexture(0);
-		if (texture == null || texture.getImage() == null)
+		Fog fog = appearance.getFog();
+		if (fog == null)
 		{
 			return null;
 		}
-		Image2D image = texture.getImage();
-		if (image.getFormat() != Image2D.RGB && image.getFormat() != Image2D.RGBA)
-		{
-			return null;
-		}
-		TextureInfo info = new TextureInfo();
-		info.image = image;
-		info.wrapS = texture.getWrappingS();
-		info.wrapT = texture.getWrappingT();
-		info.blending = texture.getBlending();
-		info.blendColor = texture.getBlendColor() | 0xFF000000;
-		Transform textureTransform = new Transform();
-		texture.getCompositeTransform(textureTransform);
-		info.transformMatrix = textureTransform.getMatrix().clone();
+		FogInfo info = new FogInfo();
+		info.color = fog.getColor() | 0xFF000000;
+		info.mode = fog.getMode();
+		info.density = fog.getDensity();
+		info.nearDistance = fog.getNearDistance();
+		info.farDistance = fog.getFarDistance();
 		return info;
 	}
 
@@ -1462,7 +1809,12 @@ public class Graphics3D
 	{
 		if (appearance != null && appearance.getMaterial() != null)
 		{
-			int materialColor = appearance.getMaterial().getColor(Material.DIFFUSE);
+			Material material = appearance.getMaterial();
+			if (material.isVertexColorTrackingEnabled())
+			{
+				return vertices.getDefaultColor();
+			}
+			int materialColor = material.getColor(Material.DIFFUSE);
 			if (materialColor != 0)
 			{
 				return materialColor;
@@ -1526,6 +1878,45 @@ public class Graphics3D
 		}
 	}
 
+	private int applyFog(int color, FogInfo fog, float distance)
+	{
+		float fogFactor = computeFogFactor(fog, distance);
+		if (fogFactor <= 0f)
+		{
+			return color;
+		}
+		if (fogFactor >= 1f)
+		{
+			return (color & 0xFF000000) | (fog.color & 0x00FFFFFF);
+		}
+		int alpha = color & 0xFF000000;
+		int r = Math.round(((color >>> 16) & 0xFF) * (1f - fogFactor) + ((fog.color >>> 16) & 0xFF) * fogFactor);
+		int g = Math.round(((color >>> 8) & 0xFF) * (1f - fogFactor) + ((fog.color >>> 8) & 0xFF) * fogFactor);
+		int b = Math.round((color & 0xFF) * (1f - fogFactor) + (fog.color & 0xFF) * fogFactor);
+		return alpha | (clampColor(r) << 16) | (clampColor(g) << 8) | clampColor(b);
+	}
+
+	private float computeFogFactor(FogInfo fog, float distance)
+	{
+		if (distance <= 0f)
+		{
+			return 0f;
+		}
+		if (fog.mode == Fog.LINEAR)
+		{
+			if (fog.farDistance <= fog.nearDistance)
+			{
+				return distance >= fog.farDistance ? 1f : 0f;
+			}
+			return clamp01((distance - fog.nearDistance) / (fog.farDistance - fog.nearDistance));
+		}
+		if (fog.mode == Fog.EXPONENTIAL)
+		{
+			return clamp01(1f - (float) Math.exp(-Math.max(0f, fog.density) * distance));
+		}
+		return 0f;
+	}
+
 	private int sampleTexture(TextureInfo texture, float u, float v)
 	{
 		float su = wrapCoordinate(u, texture.wrapS);
@@ -1533,7 +1924,8 @@ public class Graphics3D
 		int width = texture.image.getWidth();
 		int height = texture.image.getHeight();
 		int x = clamp((int) (su * (width - 1)), 0, width - 1);
-		int y = clamp((int) ((1f - sv) * (height - 1)), 0, height - 1);
+		// M3G defines (0,0) at the upper-left of the texture image.
+		int y = clamp((int) (sv * (height - 1)), 0, height - 1);
 		return getImagePixel(texture.image, x, y);
 	}
 
@@ -1549,12 +1941,41 @@ public class Graphics3D
 		return value;
 	}
 
+	private static float clamp01(float value)
+	{
+		if (value < 0f)
+		{
+			return 0f;
+		}
+		if (value > 1f)
+		{
+			return 1f;
+		}
+		return value;
+	}
+
 	private int getImagePixel(Image2D image, int x, int y)
 	{
 		byte[] data = image.getImageData();
 		int offset;
 		switch (image.getFormat())
 		{
+			case Image2D.ALPHA:
+				offset = y * image.getWidth() + x;
+				return ((data[offset] & 0xFF) << 24) | 0x00FFFFFF;
+			case Image2D.LUMINANCE:
+			{
+				offset = y * image.getWidth() + x;
+				int luminance = data[offset] & 0xFF;
+				return 0xFF000000 | (luminance << 16) | (luminance << 8) | luminance;
+			}
+			case Image2D.LUMINANCE_ALPHA:
+			{
+				offset = (y * image.getWidth() + x) * 2;
+				int luminance = data[offset] & 0xFF;
+				int alpha = data[offset + 1] & 0xFF;
+				return (alpha << 24) | (luminance << 16) | (luminance << 8) | luminance;
+			}
 			case Image2D.RGB:
 				offset = (y * image.getWidth() + x) * 3;
 				return 0xFF000000 | ((data[offset] & 0xFF) << 16) | ((data[offset + 1] & 0xFF) << 8) | (data[offset + 2] & 0xFF);
@@ -1690,7 +2111,7 @@ public class Graphics3D
 	{
 		if (compositingMode == null)
 		{
-			return blend(dstColor, srcColor);
+			return srcColor;
 		}
 		switch (compositingMode.getBlending())
 		{
@@ -1736,8 +2157,9 @@ public class Graphics3D
 		float y;
 		float z;
 		float invW;
-		float u;
-		float v;
+		float fogDistance;
+		final float[] u = new float[MAX_TEXTURE_UNITS];
+		final float[] v = new float[MAX_TEXTURE_UNITS];
 		float a;
 		float r;
 		float g;
@@ -1752,6 +2174,15 @@ public class Graphics3D
 		int blending;
 		int blendColor;
 		float[] transformMatrix;
+	}
+
+	private static final class FogInfo
+	{
+		int color;
+		int mode;
+		float density;
+		float nearDistance;
+		float farDistance;
 	}
 
 	private static final int CLIP_LEFT = 0;
@@ -1783,6 +2214,7 @@ public class Graphics3D
 		static final int NORMALS = 1;
 		static final int COLORS = 2;
 		static final int TEXCOORDS0 = 3;
+		static final int TEXCOORDS1 = 4;
 	}
 
 	private interface RenderSurface
@@ -1807,7 +2239,8 @@ public class Graphics3D
 
 		public void setPixel(int x, int y, int argb)
 		{
-			image.setRGB(x, y, argb);
+			// A Graphics-backed render target is effectively opaque on the desktop path.
+			image.setRGB(x, y, argb | 0xFF000000);
 		}
 	}
 
@@ -1856,6 +2289,11 @@ public class Graphics3D
 		void clear(Background background);
 		void render(VertexBuffer vertices, TriangleStripArray triangles, Appearance appearance, Transform transform);
 		void releaseTarget();
+	}
+
+	public interface SkinningBackend extends Backend
+	{
+		boolean renderSkinned(SkinnedMesh mesh, TriangleStripArray triangles, Appearance appearance, Transform transform);
 	}
 
 	static final class SoftwareRenderBackend implements Backend

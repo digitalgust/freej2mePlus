@@ -144,7 +144,10 @@ public abstract class Object3D
 			addReference(references, vertexBuffer.getPositions(null));
 			addReference(references, vertexBuffer.getNormals());
 			addReference(references, vertexBuffer.getColors());
-			addReference(references, vertexBuffer.getTexCoords(0, null));
+			for (int i = 0; i < 2; i++)
+			{
+				addReference(references, vertexBuffer.getTexCoords(i, null));
+			}
 		}
 		if (this instanceof Appearance)
 		{
@@ -153,7 +156,10 @@ public abstract class Object3D
 			addReference(references, appearance.getFog());
 			addReference(references, appearance.getMaterial());
 			addReference(references, appearance.getPolygonMode());
-			addReference(references, appearance.getTexture(0));
+			for (int i = 0; i < 2; i++)
+			{
+				addReference(references, appearance.getTexture(i));
+			}
 		}
 		if (this instanceof Texture2D)
 		{
@@ -457,6 +463,19 @@ public abstract class Object3D
 			}
 		}
 
+		if (this instanceof Sprite3D)
+		{
+			Sprite3D sprite = (Sprite3D) this;
+			switch (property)
+			{
+				case AnimationTrack.CROP:
+					applyCrop(sprite, value);
+					return;
+				default:
+					break;
+			}
+		}
+
 		if (this instanceof Fog)
 		{
 			Fog fog = (Fog) this;
@@ -525,6 +544,18 @@ public abstract class Object3D
 		else if (value.length >= 2)
 		{
 			background.setCrop(background.getCropX(), background.getCropY(), Math.round(value[0]), Math.round(value[1]));
+		}
+	}
+
+	private static void applyCrop(Sprite3D sprite, float[] value)
+	{
+		if (value.length >= 4)
+		{
+			sprite.setCrop(Math.round(value[0]), Math.round(value[1]), Math.round(value[2]), Math.round(value[3]));
+		}
+		else if (value.length >= 2)
+		{
+			sprite.setCrop(sprite.getCropX(), sprite.getCropY(), Math.round(value[0]), Math.round(value[1]));
 		}
 	}
 
