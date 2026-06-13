@@ -27,6 +27,7 @@ public class VertexBuffer extends Object3D
 	private final float[] positionScaleBias = new float[] { 1f, 0f, 0f, 0f };
 	private final float[][] texCoordScaleBias = new float[MAX_TEXTURE_UNITS][4];
 	private int defaultColor = 0xFFFFFFFF;
+	private int revision;
 
 	{
 		for (int i = 0; i < MAX_TEXTURE_UNITS; i++)
@@ -41,6 +42,8 @@ public class VertexBuffer extends Object3D
 	public VertexArray getColors() { return colors; }
 
 	public int getDefaultColor() { return defaultColor; }
+
+	int getRevision() { return revision; }
 
 	public VertexArray getNormals() { return normals; }
 
@@ -105,9 +108,14 @@ public class VertexBuffer extends Object3D
 			checkVertexCount(colors);
 		}
 		this.colors = colors;
+		revision++;
 	}
 
-	public void setDefaultColor(int ARGB) { defaultColor = ARGB; }
+	public void setDefaultColor(int ARGB)
+	{
+		defaultColor = ARGB;
+		revision++;
+	}
 
 	public void setNormals(VertexArray normals)
 	{
@@ -120,6 +128,7 @@ public class VertexBuffer extends Object3D
 			checkVertexCount(normals);
 		}
 		this.normals = normals;
+		revision++;
 	}
 
 	public void setPositions(VertexArray positions, float scale, float[] bias)
@@ -141,6 +150,7 @@ public class VertexBuffer extends Object3D
 		positionScaleBias[1] = bias != null ? bias[0] : 0f;
 		positionScaleBias[2] = bias != null ? bias[1] : 0f;
 		positionScaleBias[3] = bias != null ? bias[2] : 0f;
+		revision++;
 	}
 
 	public void setTexCoords(int index, VertexArray texCoords, float scale, float[] bias)
@@ -164,6 +174,7 @@ public class VertexBuffer extends Object3D
 		texCoordScaleBias[index][1] = bias != null ? bias[0] : 0f;
 		texCoordScaleBias[index][2] = bias != null ? bias[1] : 0f;
 		texCoordScaleBias[index][3] = bias != null && bias.length > 2 ? bias[2] : 0f;
+		revision++;
 	}
 
 	float[] getPositionScaleBias()

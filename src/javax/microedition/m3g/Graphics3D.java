@@ -53,6 +53,7 @@ public class Graphics3D
 	private final Vector<Light> lights = new Vector<Light>();
 	private final Vector<Transform> lightTransforms = new Vector<Transform>();
 	private float[] depthBuffer;
+	private final Hashtable morphedVertexBufferCache = new Hashtable();
 	private final Backend softwareBackend;
 	private final Backend backend;
 
@@ -268,7 +269,7 @@ public class Graphics3D
 					{
 						vertices = mesh.getVertexBuffer();
 					}
-					render(vertices, triangles, appearance, combined, node.getScope());
+					render(mesh, i, vertices, triangles, appearance, combined, node.getScope());
 				}
 			}
 			return;
@@ -302,6 +303,11 @@ public class Graphics3D
 
 	public void render(VertexBuffer vertices, IndexBuffer triangles, Appearance appearance, Transform transform, int scope)
 	{
+		render(null, -1, vertices, triangles, appearance, transform, scope);
+	}
+
+	private void render(Mesh mesh, int submeshIndex, VertexBuffer vertices, IndexBuffer triangles, Appearance appearance, Transform transform, int scope)
+	{
 		if (vertices == null || triangles == null || appearance == null)
 		{
 			throw new NullPointerException();
@@ -311,7 +317,7 @@ public class Graphics3D
 		validateGeometry(vertices, triangles);
 		if (triangles instanceof TriangleStripArray)
 		{
-			backend.render(vertices, (TriangleStripArray) triangles, appearance, transform);
+			backend.render(mesh, submeshIndex, vertices, (TriangleStripArray) triangles, appearance, transform);
 		}
 	}
 
@@ -321,25 +327,55 @@ public class Graphics3D
 		{
 			throw new NullPointerException();
 		}
-		ensureTargetBound();
-		if (world.getActiveCamera() == null)
+		long debugStartMs = System.currentTimeMillis();
+		org.recompile.mobile.Mobile.DebugWatchScope debugScope = org.recompile.mobile.Mobile.beginDebugWatchScope("E", "Graphics3D.render(World).watch", 1000L);
+		try
 		{
-			throw new IllegalStateException();
-		}
-
-		clear(world.getBackground());
-		Transform worldCameraTransform = new Transform();
-		world.getActiveCamera().getCompositeTransform(worldCameraTransform);
-		setCamera(world.getActiveCamera(), worldCameraTransform);
-		resetLights();
-		collectLights(world);
-
-		for (int i = 0; i < world.getChildCount(); i++)
-		{
-			Node child = world.getChild(i);
-			if (child instanceof Mesh || child instanceof Sprite3D || child instanceof Group)
+			org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "ensure-target");
+			ensureTargetBound();
+			if (world.getActiveCamera() == null)
 			{
-				render(child, null);
+				throw new IllegalStateException();
+			}
+
+			org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "clear");
+			clear(world.getBackground());
+			Transform worldCameraTransform = new Transform();
+			org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "camera");
+			world.getActiveCamera().getCompositeTransform(worldCameraTransform);
+			setCamera(world.getActiveCamera(), worldCameraTransform);
+			org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "lights");
+			resetLights();
+			collectLights(world);
+
+			for (int i = 0; i < world.getChildCount(); i++)
+			{
+				org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "child-" + i);
+				Node child = world.getChild(i);
+				if (child instanceof Mesh || child instanceof Sprite3D || child instanceof Group)
+				{
+					render(child, null);
+				}
+			}
+		}
+		finally
+		{
+			org.recompile.mobile.Mobile.updateDebugWatchScope(debugScope, "done");
+			org.recompile.mobile.Mobile.finishDebugWatchScope(debugScope);
+			long totalCostMs = System.currentTimeMillis() - debugStartMs;
+			if (totalCostMs >= 200)
+			{
+				// #region debug-point C:slow-world-render
+				org.recompile.mobile.Mobile.reportDebugEvent("C", "Graphics3D.render(World)", "[DEBUG] slow world render", "{\"thread\":\""
+						+ org.recompile.mobile.Mobile.debugJson(Thread.currentThread().getName())
+						+ "\",\"totalMs\":"
+						+ totalCostMs
+						+ ",\"childCount\":"
+						+ world.getChildCount()
+						+ ",\"targetBound\":"
+						+ (target != null)
+						+ "}");
+				// #endregion
 			}
 		}
 	}
@@ -938,8 +974,24 @@ public class Graphics3D
 		VertexBuffer base = mesh.getVertexBuffer();
 		float[] weights = new float[mesh.getMorphTargetCount()];
 		mesh.getWeights(weights);
+		MorphedVertexBufferKey key = new MorphedVertexBufferKey(base, mesh, weights);
+		MorphedVertexBufferCacheEntry entry = (MorphedVertexBufferCacheEntry) morphedVertexBufferCache.get(key);
+		if (entry == null)
+		{
+			entry = new MorphedVertexBufferCacheEntry();
+			morphedVertexBufferCache.put(key, entry);
+		}
+		int sourceRevision = computeMorphSourceRevision(base, mesh);
+		if (entry.sourceRevision != sourceRevision)
+		{
+			populateMorphedVertexBuffer(entry.vertexBuffer, base, mesh, weights);
+			entry.sourceRevision = sourceRevision;
+		}
+		return entry.vertexBuffer;
+	}
 
-		VertexBuffer morphed = new VertexBuffer();
+	private void populateMorphedVertexBuffer(VertexBuffer morphed, VertexBuffer base, MorphingMesh mesh, float[] weights)
+	{
 		VertexArray positions = resolveMorphedArray(base.getPositions(null), mesh, weights, MorphAttribute.POSITIONS);
 		float[] positionScaleBias = base.getPositionScaleBias();
 		morphed.setPositions(positions, positionScaleBias[0], new float[] {
@@ -947,15 +999,12 @@ public class Graphics3D
 		});
 
 		VertexArray normals = resolveMorphedArray(base.getNormals(), mesh, weights, MorphAttribute.NORMALS);
-		if (normals != null)
-		{
-			morphed.setNormals(normals);
-		}
+		morphed.setNormals(normals);
 
 		VertexArray colors = resolveMorphedArray(base.getColors(), mesh, weights, MorphAttribute.COLORS);
+		morphed.setColors(colors);
 		if (colors != null)
 		{
-			morphed.setColors(colors);
 			morphed.setDefaultColor(base.getDefaultColor());
 		}
 		else
@@ -973,9 +1022,44 @@ public class Graphics3D
 						texScaleBias[1], texScaleBias[2], texScaleBias[3]
 				});
 			}
+			else
+			{
+				morphed.setTexCoords(unit, null, 1f, null);
+			}
 		}
+	}
 
-		return morphed;
+	private int computeMorphSourceRevision(VertexBuffer base, MorphingMesh mesh)
+	{
+		int revision = computeVertexBufferSourceRevision(base);
+		for (int i = 0; i < mesh.getMorphTargetCount(); i++)
+		{
+			revision = revision * 31 + computeVertexBufferSourceRevision(mesh.getMorphTarget(i));
+		}
+		return revision;
+	}
+
+	private int computeVertexBufferSourceRevision(VertexBuffer buffer)
+	{
+		int revision = buffer.getRevision();
+		revision = revision * 31 + buffer.getDefaultColor();
+		revision = revision * 31 + getArraySourceRevision(buffer.getPositions(null));
+		revision = revision * 31 + getArraySourceRevision(buffer.getNormals());
+		revision = revision * 31 + getArraySourceRevision(buffer.getColors());
+		for (int unit = 0; unit < MAX_TEXTURE_UNITS; unit++)
+		{
+			revision = revision * 31 + getArraySourceRevision(buffer.getTexCoords(unit, null));
+		}
+		return revision;
+	}
+
+	private static int getArraySourceRevision(VertexArray array)
+	{
+		if (array == null)
+		{
+			return 0;
+		}
+		return System.identityHashCode(array) * 31 + array.getRevision();
 	}
 
 	private VertexBuffer createSkinnedVertexBuffer(SkinnedMesh mesh)
@@ -1172,7 +1256,7 @@ public class Graphics3D
 		float[] modelViewMatrix = modelView.getMatrix();
 		float[] modelMatrix = modelTransform.getMatrix();
 		Material material = appearance != null ? appearance.getMaterial() : null;
-		boolean applyLighting = !hasAnyTexture(textures) && material != null && normalArray != null && getLightCount() > 0;
+		boolean applyLighting = material != null && normalArray != null && getLightCount() > 0;
 		boolean applyFog = fog != null;
 		float[] input = new float[4];
 		float[] clip = new float[4];
@@ -1838,7 +1922,9 @@ public class Graphics3D
 		{
 			return false;
 		}
-		boolean frontFacing = polygonMode.getWinding() == PolygonMode.WINDING_CCW ? ndcArea > 0f : ndcArea < 0f;
+		// Screen-space projection flips Y, so winding on the raster surface is the inverse of raw NDC winding.
+		float screenArea = -ndcArea;
+		boolean frontFacing = polygonMode.getWinding() == PolygonMode.WINDING_CCW ? screenArea > 0f : screenArea < 0f;
 		if (polygonMode.getCulling() == PolygonMode.CULL_BACK)
 		{
 			return !frontFacing;
@@ -1849,6 +1935,7 @@ public class Graphics3D
 		}
 		return false;
 	}
+
 
 	private int interpolateColor(ProjectedVertex v0, ProjectedVertex v1, ProjectedVertex v2, float w0, float w1, float w2)
 	{
@@ -2217,6 +2304,76 @@ public class Graphics3D
 		static final int TEXCOORDS1 = 4;
 	}
 
+	private static final class MorphedVertexBufferCacheEntry
+	{
+		private final VertexBuffer vertexBuffer = new VertexBuffer();
+		private int sourceRevision = Integer.MIN_VALUE;
+	}
+
+	private static final class MorphedVertexBufferKey
+	{
+		private final VertexBuffer base;
+		private final VertexBuffer[] targets;
+		private final int[] weightBits;
+
+		MorphedVertexBufferKey(VertexBuffer base, MorphingMesh mesh, float[] weights)
+		{
+			this.base = base;
+			this.targets = new VertexBuffer[mesh.getMorphTargetCount()];
+			for (int i = 0; i < targets.length; i++)
+			{
+				targets[i] = mesh.getMorphTarget(i);
+			}
+			this.weightBits = new int[weights.length];
+			for (int i = 0; i < weights.length; i++)
+			{
+				weightBits[i] = Float.floatToIntBits(weights[i]);
+			}
+		}
+
+		public int hashCode()
+		{
+			int hash = System.identityHashCode(base);
+			for (int i = 0; i < targets.length; i++)
+			{
+				hash = hash * 31 + System.identityHashCode(targets[i]);
+			}
+			for (int i = 0; i < weightBits.length; i++)
+			{
+				hash = hash * 31 + weightBits[i];
+			}
+			return hash;
+		}
+
+		public boolean equals(Object object)
+		{
+			if (!(object instanceof MorphedVertexBufferKey))
+			{
+				return false;
+			}
+			MorphedVertexBufferKey other = (MorphedVertexBufferKey) object;
+			if (other.base != base || other.targets.length != targets.length || other.weightBits.length != weightBits.length)
+			{
+				return false;
+			}
+			for (int i = 0; i < targets.length; i++)
+			{
+				if (other.targets[i] != targets[i])
+				{
+					return false;
+				}
+			}
+			for (int i = 0; i < weightBits.length; i++)
+			{
+				if (other.weightBits[i] != weightBits[i])
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+	}
+
 	private interface RenderSurface
 	{
 		int getPixel(int x, int y);
@@ -2226,19 +2383,36 @@ public class Graphics3D
 	private static final class BufferedImageSurface implements RenderSurface
 	{
 		private final BufferedImage image;
+		private final int width;
+		private final int height;
 
 		BufferedImageSurface(BufferedImage image)
 		{
 			this.image = image;
+			this.width = image.getWidth();
+			this.height = image.getHeight();
+		}
+
+		private boolean isInBounds(int x, int y)
+		{
+			return x >= 0 && y >= 0 && x < width && y < height;
 		}
 
 		public int getPixel(int x, int y)
 		{
+			if (!isInBounds(x, y))
+			{
+				return 0;
+			}
 			return image.getRGB(x, y);
 		}
 
 		public void setPixel(int x, int y, int argb)
 		{
+			if (!isInBounds(x, y))
+			{
+				return;
+			}
 			// A Graphics-backed render target is effectively opaque on the desktop path.
 			image.setRGB(x, y, argb | 0xFF000000);
 		}
@@ -2249,16 +2423,27 @@ public class Graphics3D
 		private final Image2D image;
 		private final byte[] data;
 		private final int width;
+		private final int height;
 
 		Image2DSurface(Image2D image)
 		{
 			this.image = image;
 			this.data = image.getImageData();
 			this.width = image.getWidth();
+			this.height = image.getHeight();
+		}
+
+		private boolean isInBounds(int x, int y)
+		{
+			return x >= 0 && y >= 0 && x < width && y < height;
 		}
 
 		public int getPixel(int x, int y)
 		{
+			if (!isInBounds(x, y))
+			{
+				return 0;
+			}
 			int offset = (y * width + x) * (image.getFormat() == Image2D.RGB ? 3 : 4);
 			return image.getFormat() == Image2D.RGB
 					? 0xFF000000 | ((data[offset] & 0xFF) << 16) | ((data[offset + 1] & 0xFF) << 8) | (data[offset + 2] & 0xFF)
@@ -2267,6 +2452,10 @@ public class Graphics3D
 
 		public void setPixel(int x, int y, int argb)
 		{
+			if (!isInBounds(x, y))
+			{
+				return;
+			}
 			int offset = (y * width + x) * (image.getFormat() == Image2D.RGB ? 3 : 4);
 			data[offset] = (byte) ((argb >>> 16) & 0xFF);
 			data[offset + 1] = (byte) ((argb >>> 8) & 0xFF);
@@ -2287,7 +2476,7 @@ public class Graphics3D
 	{
 		void bindTarget(Object target, boolean depthBuffer, int hints);
 		void clear(Background background);
-		void render(VertexBuffer vertices, TriangleStripArray triangles, Appearance appearance, Transform transform);
+		void render(Mesh mesh, int submeshIndex, VertexBuffer vertices, TriangleStripArray triangles, Appearance appearance, Transform transform);
 		void releaseTarget();
 	}
 
@@ -2314,7 +2503,7 @@ public class Graphics3D
 		{
 		}
 
-		public void render(VertexBuffer vertices, TriangleStripArray triangles, Appearance appearance, Transform transform)
+		public void render(Mesh mesh, int submeshIndex, VertexBuffer vertices, TriangleStripArray triangles, Appearance appearance, Transform transform)
 		{
 			owner.renderTriangleStripsWithSoftwareBackend(vertices, triangles, appearance, transform);
 		}

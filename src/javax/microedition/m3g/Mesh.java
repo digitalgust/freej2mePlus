@@ -27,25 +27,35 @@ public class Mesh extends Node
 
 	public Mesh(VertexBuffer vertices, IndexBuffer[] submeshes, Appearance[] appearances)
 	{
-		if (vertices == null || submeshes == null || appearances == null)
+		if (vertices == null || submeshes == null)
 		{
 			throw new NullPointerException();
 		}
-		if (submeshes.length == 0 || submeshes.length != appearances.length)
+		if (submeshes.length == 0 || (appearances != null && appearances.length < submeshes.length))
 		{
 			throw new IllegalArgumentException();
+		}
+		for (int i = 0; i < submeshes.length; i++)
+		{
+			if (submeshes[i] == null)
+			{
+				throw new NullPointerException();
+			}
 		}
 
 		this.vertexbuffer = vertices;
 		this.indexbuffers = new IndexBuffer[submeshes.length];
-		this.appearances = new Appearance[appearances.length];
+		this.appearances = new Appearance[submeshes.length];
 		System.arraycopy(submeshes, 0, this.indexbuffers, 0, submeshes.length);
-		System.arraycopy(appearances, 0, this.appearances, 0, appearances.length);
+		if (appearances != null)
+		{
+			System.arraycopy(appearances, 0, this.appearances, 0, Math.min(appearances.length, submeshes.length));
+		}
 	}
 
 	public Mesh(VertexBuffer vertices, IndexBuffer submesh, Appearance appearance)
 	{
-		if (vertices == null || submesh == null || appearance == null)
+		if (vertices == null || submesh == null)
 		{
 			throw new NullPointerException();
 		}

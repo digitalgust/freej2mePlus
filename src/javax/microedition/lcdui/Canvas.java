@@ -17,6 +17,7 @@
 package javax.microedition.lcdui;
 
 import org.recompile.freej2me.FreeJ2ME;
+import org.recompile.freej2me.J2meSandBox;
 import org.recompile.mobile.Mobile;
 import org.recompile.mobile.PlatformImage;
 import org.recompile.mobile.PlatformGraphics;
@@ -48,6 +49,10 @@ public abstract class Canvas extends Displayable {
 
     boolean repaintRequested = false;
     int repaintX, repaintY, repaintWidth, repaintHeight;
+    private final Object repaintLock = new Object();
+    private boolean repaintInProgress = false;
+    private long repaintSerial = 0L;
+    private long completedRepaintSerial = 0L;
 
     protected Canvas() {
         width = FreeJ2ME.getMobile().getPlatform().lcdWidth;
@@ -211,7 +216,7 @@ public abstract class Canvas extends Displayable {
     public void pointerReleased(int x, int y) {
     }
 
-    public synchronized void repaint() {
+    public void repaint() {
 //        //检查是否存在循环调用(repaint->paint->repaint...)，造成堆栈溢出
 //        Throwable t = new Throwable();
 //        StackTraceElement[] stack = t.getStackTrace();
@@ -221,42 +226,109 @@ public abstract class Canvas extends Displayable {
 //            }
 //        }
 
-        repaintRequested = true;
-        repaintX = 0;
-        repaintY = 0;
-        repaintWidth = width;
-        repaintHeight = height;
+        synchronized (repaintLock) {
+            repaintRequested = true;
+            repaintX = 0;
+            repaintY = 0;
+            repaintWidth = width;
+            repaintHeight = height;
+            repaintSerial++;
+        }
         FreeJ2ME.getMobile().getJ2meSandBox().requestRepaint();
     }
 
-    public synchronized void repaint(int x, int y, int pwidth, int pheight) {
-        repaintRequested = true;
-        repaintX = x;
-        repaintY = y;
-        repaintWidth = pwidth;
-        repaintHeight = pheight;
+    public void repaint(int x, int y, int pwidth, int pheight) {
+        synchronized (repaintLock) {
+            repaintRequested = true;
+            repaintX = x;
+            repaintY = y;
+            repaintWidth = pwidth;
+            repaintHeight = pheight;
+            repaintSerial++;
+        }
         FreeJ2ME.getMobile().getJ2meSandBox().requestRepaint();
     }
 
     public void serviceRepaints() {
-        if (!repaintRequested) return;
-        repaintRequested = false;
+        J2meSandBox sandBox = FreeJ2ME.getMobile().getJ2meSandBox();
+        if (sandBox.isEventThread()) {
+            drainPendingRepaint();
+            return;
+        }
+        long waitSerial;
+        synchronized (repaintLock) {
+            if (!repaintRequested && !repaintInProgress) {
+                return;
+            }
+            waitSerial = repaintSerial;
+        }
+        sandBox.requestRepaint();
+        synchronized (repaintLock) {
+            while (completedRepaintSerial < waitSerial) {
+                try {
+                    repaintLock.wait();
+                } catch (InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
 
+    public boolean drainPendingRepaint() {
+        int clipX;
+        int clipY;
+        int clipWidth;
+        int clipHeight;
+        long repaintToken;
+        synchronized (repaintLock) {
+            if (!repaintRequested || repaintInProgress) {
+                return false;
+            }
+            repaintInProgress = true;
+            repaintRequested = false;
+            clipX = repaintX;
+            clipY = repaintY;
+            clipWidth = repaintWidth;
+            clipHeight = repaintHeight;
+            repaintToken = repaintSerial;
+        }
         PlatformGraphics graphics;
         try {
             if (FreeJ2ME.getMobile().getDisplay().getCurrent() == this) {
                 graphics = platformImage.getGraphics();
                 graphics.reset();
                 paint(graphics);
-                FreeJ2ME.getMobile().getPlatform().flushGraphics(platformImage, repaintX, repaintY, repaintWidth, repaintHeight);
+                FreeJ2ME.getMobile().getPlatform().flushGraphics(platformImage, clipX, clipY, clipWidth, clipHeight);
             }
         } catch (Exception e) {
             System.out.print("Canvas repaint(): " + e.getMessage());
             e.printStackTrace();
+        } finally {
+            javax.microedition.m3g.Graphics3D graphics3D = FreeJ2ME.getMobile().getGraphics3D();
+            if (graphics3D != null && graphics3D.getTarget() != null) {
+                try {
+                    graphics3D.releaseTarget();
+                } catch (Throwable ignored) {
+                }
+            }
+            boolean pendingRepaint;
+            synchronized (repaintLock) {
+                repaintInProgress = false;
+                if (completedRepaintSerial < repaintToken) {
+                    completedRepaintSerial = repaintToken;
+                }
+                pendingRepaint = repaintRequested;
+                repaintLock.notifyAll();
+            }
+            if (pendingRepaint) {
+                FreeJ2ME.getMobile().getJ2meSandBox().requestRepaint();
+            }
         }
 
 //        System.out.println("countTimes=" + PlatformGraphics.countTimes);
 //        PlatformGraphics.countTimes = 0;
+        return true;
     }
 
     public void setFullScreenMode(boolean mode) {

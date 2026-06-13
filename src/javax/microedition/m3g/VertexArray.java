@@ -22,6 +22,7 @@ public class VertexArray extends Object3D
 	private final int componentCount;
 	private final int componentType;
 	private final short[] values;
+	private int revision;
 
 	public VertexArray(int numVertices, int numComponents, int componentSize)
 	{
@@ -86,6 +87,8 @@ public class VertexArray extends Object3D
 
 	public int getVertexCount() { return vertexCount; }
 
+	int getRevision() { return revision; }
+
 	public void set(int firstVertex, int numVertices, byte[] values)
 	{
 		checkRange(firstVertex, numVertices);
@@ -108,6 +111,7 @@ public class VertexArray extends Object3D
 		{
 			this.values[dst + i] = values[i];
 		}
+		revision++;
 	}
 
 	public void set(int firstVertex, int numVertices, short[] values)
@@ -128,6 +132,7 @@ public class VertexArray extends Object3D
 		}
 
 		System.arraycopy(values, 0, this.values, firstVertex * componentCount, required);
+		revision++;
 	}
 
 	float getComponentAsFloat(int vertex, int component)
@@ -154,4 +159,3 @@ public class VertexArray extends Object3D
 	}
 
 }
-

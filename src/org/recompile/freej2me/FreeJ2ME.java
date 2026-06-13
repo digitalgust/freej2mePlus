@@ -76,11 +76,13 @@ public class FreeJ2ME extends J2meSandBox {
     final java.util.List<Runnable> proxyAwtEvents = Collections.synchronizedList(new ArrayList<>());
 
     boolean exit = false;
+    private Thread eventThread;
 
     public FreeJ2ME(String args[]) {
         this.args = args;
         ThreadGroup tg = new ThreadGroup("threadgroup-" + this);
         Thread t = new Thread(tg, () -> {//这个线程相当于是一个沙盒，和外部代码隔离，这样就可以同时运行多个freej2me实例
+            eventThread = Thread.currentThread();
             openMidlet();
             System.out.println("midlet loaded");
 
@@ -269,7 +271,11 @@ public class FreeJ2ME extends J2meSandBox {
     }
 
 
-    public void repaintRequest() {
+    public boolean isEventThread() {
+        return Thread.currentThread() == eventThread;
+    }
+
+    public void requestRepaint() {
         synchronized (proxyAwtEvents) {
             proxyAwtEvents.notify();
         }
@@ -290,7 +296,10 @@ public class FreeJ2ME extends J2meSandBox {
             try {
                 Display display = getMobile().getDisplay();
                 if (display != null && display.getCurrent() instanceof javax.microedition.lcdui.Canvas) {
-                    ((javax.microedition.lcdui.Canvas) display.getCurrent()).serviceRepaints();
+                    javax.microedition.lcdui.Canvas canvas = (javax.microedition.lcdui.Canvas) display.getCurrent();
+                    while (canvas.drainPendingRepaint()) {
+                        // Drain all queued repaints on the event thread to keep Graphics3D lifecycle serialized.
+                    }
                 }
             } catch (Exception e) {
                 e.printStackTrace();

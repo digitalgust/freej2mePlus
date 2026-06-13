@@ -59,7 +59,6 @@ public class SkinnedMesh extends Mesh
 
 	static final class GpuSkinningData
 	{
-		final GpuSkinningTiming timing;
 		final VertexBuffer baseVertices;
 		final int vertexCount;
 		final int boneCount;
@@ -69,10 +68,9 @@ public class SkinnedMesh extends Mesh
 		final float[] boneWeights;
 		final float[] boneMatrices;
 
-		GpuSkinningData(GpuSkinningTiming timing, VertexBuffer baseVertices, int vertexCount, int boneCount, int maxVertexInfluenceCount,
+		GpuSkinningData(VertexBuffer baseVertices, int vertexCount, int boneCount, int maxVertexInfluenceCount,
 				int packedInfluenceCount, float[] boneIndices, float[] boneWeights, float[] boneMatrices)
 		{
-			this.timing = timing;
 			this.baseVertices = baseVertices;
 			this.vertexCount = vertexCount;
 			this.boneCount = boneCount;
@@ -82,17 +80,6 @@ public class SkinnedMesh extends Mesh
 			this.boneWeights = boneWeights;
 			this.boneMatrices = boneMatrices;
 		}
-	}
-
-	static final class GpuSkinningTiming
-	{
-		long totalNs;
-		long ensureInfluenceCacheNs;
-		long ensureGpuPaletteCacheNs;
-		long packGpuInfluencesNs;
-		long ensureGpuBoneMatricesBufferNs;
-		long updateBoneMatricesNs;
-		long copyBoneMatricesNs;
 	}
 
 	public SkinnedMesh(VertexBuffer vertices, IndexBuffer[] submeshes, Appearance[] appearances, Group skeleton)
@@ -532,8 +519,6 @@ public class SkinnedMesh extends Mesh
 
 	GpuSkinningData getGpuSkinningData(int maxInfluences)
 	{
-		GpuSkinningTiming timing = new GpuSkinningTiming();
-		long totalStartNs = System.nanoTime();
 		if (maxInfluences < 1)
 		{
 			throw new IllegalArgumentException();
@@ -549,16 +534,11 @@ public class SkinnedMesh extends Mesh
 			return null;
 		}
 
-		long ensureInfluenceCacheStartNs = System.nanoTime();
 		ensureInfluenceCache(vertexCount);
-		timing.ensureInfluenceCacheNs = System.nanoTime() - ensureInfluenceCacheStartNs;
-		long ensureGpuPaletteCacheStartNs = System.nanoTime();
 		if (!ensureGpuPaletteCache())
 		{
-			timing.ensureGpuPaletteCacheNs = System.nanoTime() - ensureGpuPaletteCacheStartNs;
 			return null;
 		}
-		timing.ensureGpuPaletteCacheNs = System.nanoTime() - ensureGpuPaletteCacheStartNs;
 		int boneCount = cachedGpuPaletteBoneCount;
 		if (cachedGpuBoneIndices == null
 				|| cachedGpuBoneWeights == null
@@ -569,7 +549,6 @@ public class SkinnedMesh extends Mesh
 			cachedGpuMaxInfluenceCount = maxInfluences;
 			cachedGpuBoneIndices = new float[vertexCount * maxInfluences];
 			cachedGpuBoneWeights = new float[vertexCount * maxInfluences];
-			long packGpuInfluencesStartNs = System.nanoTime();
 			for (int v = 0; v < vertexCount; v++)
 			{
 				int[] boneIndices = cachedVertexBoneIndices[v];
@@ -582,21 +561,14 @@ public class SkinnedMesh extends Mesh
 				packGpuInfluences(boneIndices, boneWeights, cachedGpuBoneIndices, cachedGpuBoneWeights, offset, maxInfluences,
 						cachedGpuRecordToPaletteIndices);
 			}
-			timing.packGpuInfluencesNs = System.nanoTime() - packGpuInfluencesStartNs;
 		}
 
-		long ensureGpuBoneMatricesBufferStartNs = System.nanoTime();
 		if (cachedGpuBoneMatrices == null || cachedGpuBoneMatrices.length != boneCount * 16)
 		{
 			cachedGpuBoneMatrices = new float[boneCount * 16];
 		}
-		timing.ensureGpuBoneMatricesBufferNs = System.nanoTime() - ensureGpuBoneMatricesBufferStartNs;
-		long updateBoneMatricesStartNs = System.nanoTime();
 		updateGpuBoneMatrices(boneCount);
-		timing.updateBoneMatricesNs = System.nanoTime() - updateBoneMatricesStartNs;
-		timing.copyBoneMatricesNs = 0L;
-		timing.totalNs = System.nanoTime() - totalStartNs;
-		return new GpuSkinningData(timing, base, vertexCount, boneCount, Math.min(cachedMaxVertexInfluenceCount, maxInfluences), maxInfluences,
+		return new GpuSkinningData(base, vertexCount, boneCount, Math.min(cachedMaxVertexInfluenceCount, maxInfluences), maxInfluences,
 				cachedGpuBoneIndices, cachedGpuBoneWeights, cachedGpuBoneMatrices);
 	}
 

@@ -5,7 +5,10 @@ Improvement:
 * Support java.microedition.lcdui.TextField and java.microedition.lcdui.TextBox for input .
 * Support full of com.nokia.mid.ui.DirectGraphics.drawImage maniputation.
 * Fixed java.microedition.lcdui package bugs.
+* Supported jsr184 java.microedition.m3g package.
 
+
+<img src="https://raw.githubusercontent.com/digitalgust/freej2mePlus/master/web/3d_screenshot.png" alt="freej2me3d" width="400" height="300"></img>
 
 
 # freej2me

@@ -10,6 +10,10 @@ public class J2meSandBox {
     public void notifyDestroy() {
     }
 
+    public boolean isEventThread() {
+        return false;
+    }
+
     public void requestRepaint() {
 
     }
