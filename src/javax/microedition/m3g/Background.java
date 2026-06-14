@@ -31,8 +31,8 @@ public class Background extends Object3D
 	private int cropy;
 
 	private Image2D image;
-	private boolean depthclear;
-	private boolean colorclear;
+	private boolean depthclear = true;
+	private boolean colorclear = true;
 
 
 	public Background() {  }
