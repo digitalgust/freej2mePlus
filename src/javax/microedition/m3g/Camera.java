@@ -53,11 +53,18 @@ public class Camera extends Node
 	{
 		if (transform != null)
 		{
-			if (projectionType != GENERIC)
+			if (projectionType == GENERIC)
 			{
-				throw new IllegalStateException();
+				transform.set(genericTransform);
 			}
-			transform.set(genericTransform);
+			else
+			{
+				if (projectionParams[1] == 0f)
+				{
+					throw new ArithmeticException();
+				}
+				transform.set(getProjectionTransform(0, 0));
+			}
 		}
 		return projectionType;
 	}

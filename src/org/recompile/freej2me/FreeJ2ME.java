@@ -33,6 +33,8 @@ import java.util.Map;
 import javax.imageio.ImageIO;
 import javax.microedition.lcdui.Display;
 
+import static org.recompile.mobile.BytecodeInjectionTool.RULES_PROPERTY;
+
 public class FreeJ2ME extends J2meSandBox {
     public static void main(String args[]) {
         FreeJ2ME app = new FreeJ2ME(args);
@@ -80,6 +82,12 @@ public class FreeJ2ME extends J2meSandBox {
 
     public FreeJ2ME(String args[]) {
         this.args = args;
+//        System.setProperty("freej2me.m3g.diag.leak", "true");
+        //System.setProperty("freej2me.diag.render", "1");
+        //System.setProperty("freej2me.diag.tint", "1");
+        //System.setProperty(RULES_PROPERTY,"ENTRY_PRINT|q|a|(FFFFFFFFF)V|q.a camera params: {0}, {1}, {2}, {3}, {4}, {5}, {6}, {7}, {8}");
+        //System.setProperty(RULES_PROPERTY,"ENTRY_PRINT|k|c|(Ljavax/microedition/lcdui/Graphics;)V|sky draw called");
+        //System.setProperty("freej2me.bytecode.injection.rules", "ENTRY_PRINT|o|a|()I|o.a called\nEXIT_PRINT|o|a|()I|o.a ret={ret}");
         ThreadGroup tg = new ThreadGroup("threadgroup-" + this);
         Thread t = new Thread(tg, () -> {//这个线程相当于是一个沙盒，和外部代码隔离，这样就可以同时运行多个freej2me实例
             eventThread = Thread.currentThread();
