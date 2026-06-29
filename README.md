@@ -8,7 +8,7 @@ Plus:
 * Supported jsr184 java.microedition.m3g package.
 
 
-<img src="https://raw.githubusercontent.com/digitalgust/freej2mePlus/master/web/3d_screenshot.png" alt="freej2me3d" width="459" height="300"></img>
+<img src="https://raw.githubusercontent.com/digitalgust/freej2mePlus/master/web/3d_screenshot.png" alt="freej2me3d" width="672" height="300"></img>
 
 
 # freej2me
